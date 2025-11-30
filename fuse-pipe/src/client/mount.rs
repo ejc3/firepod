@@ -2,7 +2,7 @@
 //!
 //! Note: Multi-reader support via FUSE_DEV_IOC_CLONE requires a custom fuser fork.
 //! When using standard fuser from crates.io, multi-reader requests will fall back
-//! to single reader mode.
+//! to single reader mode with a warning.
 
 use super::{FuseClient, Multiplexer};
 use std::os::unix::net::UnixStream;
@@ -26,6 +26,8 @@ pub fn mount<P: AsRef<Path>>(socket_path: &str, mount_point: P) -> anyhow::Resul
 ///
 /// This creates multiple FUSE reader threads using FUSE_DEV_IOC_CLONE,
 /// allowing parallel processing of FUSE requests.
+///
+/// Note: Requires custom fuser fork. Standard fuser falls back to single reader.
 pub fn mount_with_readers<P: AsRef<Path>>(
     socket_path: &str,
     mount_point: P,
@@ -41,7 +43,7 @@ pub fn mount_with_readers<P: AsRef<Path>>(
 /// * `socket_path` - Path to the Unix socket where the server is listening
 /// * `mount_point` - Directory where the FUSE filesystem will be mounted
 /// * `num_readers` - Number of FUSE reader threads (1-8 recommended)
-///   Note: Multi-reader support requires custom fuser fork. Standard fuser uses single reader.
+///   Note: Multi-reader requires custom fuser fork. Standard fuser uses single reader.
 /// * `trace_rate` - Trace every Nth request (0 = disabled)
 pub fn mount_with_options<P: AsRef<Path>>(
     socket_path: &str,
@@ -53,11 +55,14 @@ pub fn mount_with_options<P: AsRef<Path>>(
 
     // Multi-reader requires custom fuser fork with FUSE_DEV_IOC_CLONE support
     // Standard fuser only supports single reader
-    if num_readers > 1 {
+    let actual_readers = if num_readers > 1 {
         warn!(target: "fuse-pipe::client",
               requested = num_readers,
-              "multi-reader requires custom fuser fork, falling back to single reader");
-    }
+              "multi-reader requires custom fuser fork (path=../../fuser-fork), falling back to single reader");
+        1
+    } else {
+        num_readers
+    };
 
     // Create socket connection
     let socket = UnixStream::connect(socket_path)?;
@@ -66,9 +71,8 @@ pub fn mount_with_options<P: AsRef<Path>>(
     debug!(target: "fuse-pipe::client", "connected to server");
 
     // Create multiplexer for request/response handling
-    // Use single reader since standard fuser doesn't support multi-reader
-    let mux = Multiplexer::with_trace_rate(socket, 1, trace_rate);
-    debug!(target: "fuse-pipe::client", "multiplexer started (single reader)");
+    let mux = Multiplexer::with_trace_rate(socket, actual_readers, trace_rate);
+    debug!(target: "fuse-pipe::client", actual_readers, "multiplexer started");
 
     // Mount options:
     // - AllowOther: Allow non-root users to access the mount (requires user_allow_other in /etc/fuse.conf or running as root)
@@ -116,6 +120,8 @@ pub fn mount_vsock<P: AsRef<Path>>(cid: u32, port: u32, mount_point: P) -> anyho
 }
 
 /// Mount a FUSE filesystem via vsock with multiple reader threads.
+///
+/// Note: Requires custom fuser fork. Standard fuser falls back to single reader.
 #[cfg(target_os = "linux")]
 pub fn mount_vsock_with_readers<P: AsRef<Path>>(
     cid: u32,
@@ -134,7 +140,7 @@ pub fn mount_vsock_with_readers<P: AsRef<Path>>(
 /// * `port` - The vsock port number
 /// * `mount_point` - Directory where the FUSE filesystem will be mounted
 /// * `num_readers` - Number of FUSE reader threads (1-8 recommended)
-///   Note: Multi-reader support requires custom fuser fork. Standard fuser uses single reader.
+///   Note: Multi-reader requires custom fuser fork. Standard fuser uses single reader.
 /// * `trace_rate` - Trace every Nth request (0 = disabled)
 #[cfg(target_os = "linux")]
 pub fn mount_vsock_with_options<P: AsRef<Path>>(
@@ -148,11 +154,14 @@ pub fn mount_vsock_with_options<P: AsRef<Path>>(
 
     // Multi-reader requires custom fuser fork with FUSE_DEV_IOC_CLONE support
     // Standard fuser only supports single reader
-    if num_readers > 1 {
+    let actual_readers = if num_readers > 1 {
         warn!(target: "fuse-pipe::client",
               requested = num_readers,
               "multi-reader requires custom fuser fork, falling back to single reader");
-    }
+        1
+    } else {
+        num_readers
+    };
 
     // Create vsock connection
     let transport = VsockTransport::connect(cid, port)?;
@@ -166,14 +175,10 @@ pub fn mount_vsock_with_options<P: AsRef<Path>>(
     socket.set_write_timeout(Some(Duration::from_secs(30)))?;
 
     // Create multiplexer for request/response handling
-    // Use single reader since standard fuser doesn't support multi-reader
-    let mux = Multiplexer::with_trace_rate(socket, 1, trace_rate);
-    debug!(target: "fuse-pipe::client", "multiplexer started (single reader)");
+    let mux = Multiplexer::with_trace_rate(socket, actual_readers, trace_rate);
+    debug!(target: "fuse-pipe::client", actual_readers, "multiplexer started");
 
-    // Mount options:
-    // - AllowOther: Allow non-root users to access the mount (requires user_allow_other in /etc/fuse.conf or running as root)
-    // Note: We do NOT use DefaultPermissions because we implement our own permission checks
-    // in the passthrough handler to properly enforce POSIX ownership rules (chmod/chown/utimes)
+    // Mount options
     let options = vec![
         fuser::MountOption::FSName("fuse-pipe".to_string()),
         fuser::MountOption::AllowOther,
