@@ -106,6 +106,7 @@ pub fn mount_with_options<P: AsRef<Path>>(
 
             for (reader_id, cloned_fd) in fds_vec {
                 let fs = FuseClient::new(Arc::clone(&mux_for_callback), reader_id as u32);
+                // Each cloned fd handles its own request/response pairs
                 let mut reader_session =
                     fuser::Session::from_fd_initialized(fs, cloned_fd, fuser::SessionACL::Owner);
 
@@ -254,6 +255,7 @@ pub fn mount_vsock_with_options<P: AsRef<Path>>(
 
             for (reader_id, cloned_fd) in fds_vec {
                 let fs = FuseClient::new(Arc::clone(&mux_for_callback), reader_id as u32);
+                // Each cloned fd handles its own request/response pairs
                 let mut reader_session =
                     fuser::Session::from_fd_initialized(fs, cloned_fd, fuser::SessionACL::Owner);
 
