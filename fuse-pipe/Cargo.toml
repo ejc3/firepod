@@ -34,8 +34,8 @@ tracing = "0.1"
 fuse-backend-rs = { version = "0.12", default-features = false, features = ["fusedev"] }
 vm-memory = "0.14"
 
-# Optional: FUSE client
-fuser = { version = "0.16", optional = true }
+# Optional: FUSE client (using fork with multi-reader support via FUSE_DEV_IOC_CLONE)
+fuser = { path = "../fuser-fork", optional = true }
 
 # Concurrent data structures
 dashmap = "5.5"
