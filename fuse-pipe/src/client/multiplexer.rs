@@ -202,16 +202,19 @@ fn reader_loop(mut socket: UnixStream, pending: Arc<DashMap<u64, Sender<Response
         }
 
         // Deserialize and route to waiting reader (lock-free lookup + remove)
-        if let Ok(wire) = bincode::deserialize::<WireResponse>(&resp_buf) {
-            // Mark client receive time on the span
-            let mut span = wire.span;
-            if let Some(ref mut s) = span {
-                s.mark("client_recv");
-            }
+        match bincode::deserialize::<WireResponse>(&resp_buf) {
+            Ok(wire) => {
+                // Mark client receive time on the span
+                let mut span = wire.span;
+                if let Some(ref mut s) = span {
+                    s.mark("client_recv");
+                }
 
-            if let Some((_, tx)) = pending.remove(&wire.unique) {
-                let _ = tx.send((wire.response, span));
+                if let Some((_, tx)) = pending.remove(&wire.unique) {
+                    let _ = tx.send((wire.response, span));
+                }
             }
+            Err(_) => {}
         }
     }
 }

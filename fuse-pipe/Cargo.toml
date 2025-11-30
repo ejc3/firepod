@@ -30,8 +30,12 @@ async-trait = "0.1"
 # Logging
 tracing = "0.1"
 
-# Optional: FUSE client (using fork with multi-reader support)
-fuser = { path = "../../fuser-fork", optional = true }
+# fuse-backend-rs for passthrough filesystem (Cloud Hypervisor's production-grade FUSE backend)
+fuse-backend-rs = { version = "0.12", default-features = false, features = ["fusedev"] }
+vm-memory = "0.14"
+
+# Optional: FUSE client
+fuser = { version = "0.16", optional = true }
 
 # Concurrent data structures
 dashmap = "5.5"
