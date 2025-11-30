@@ -1,0 +1,52 @@
+# Buck2 build file for fcvm
+
+rust_binary(
+    name = "fcvm",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "fcvm",
+    edition = "2021",
+    deps = [
+        ":fcvm-deps",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "fcvm-deps",
+    srcs = [],
+    deps = [
+        "//third-party:anyhow",
+        "//third-party:clap",
+        "//third-party:serde",
+        "//third-party:serde_json",
+        "//third-party:tokio",
+        "//third-party:reqwest",
+        "//third-party:which",
+        "//third-party:tracing",
+        "//third-party:tracing-subscriber",
+        "//third-party:nix",
+        "//third-party:uuid",
+        "//third-party:hyper",
+        "//third-party:hyper-util",
+        "//third-party:hyperlocal",
+        "//third-party:http-body-util",
+        "//third-party:thiserror",
+        "//third-party:libc",
+        "//third-party:tempfile",
+        "//third-party:serde_yaml",
+        "//third-party:chrono",
+        "//third-party:async-trait",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# Test target
+rust_test(
+    name = "fcvm-test",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "fcvm",
+    edition = "2021",
+    deps = [
+        ":fcvm-deps",
+    ],
+)

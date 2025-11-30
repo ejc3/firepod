@@ -1,0 +1,26 @@
+[repositories]
+  root = .
+  prelude = prelude
+  toolchains = toolchains
+
+[repository_aliases]
+  config = prelude
+  buck = prelude
+  fbcode = prelude
+  fbsource = prelude
+
+[rust]
+  rustc_binary = rustc
+  cargo_binary = cargo
+  rustc_action = rustc
+  default_edition = 2021
+  toolchain = stable
+
+[build]
+  execution_platforms = //:platforms
+
+[project]
+  ignore = .git
+
+[parser]
+  target_platform_detector_spec = target:root//...->prelude//platforms:default

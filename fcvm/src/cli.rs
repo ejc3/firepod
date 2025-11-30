@@ -1,5 +1,4 @@
 use clap::{Parser, Subcommand, Args, ValueEnum};
-use crate::lib::{Mode, MapMode};
 
 #[derive(Parser, Debug)]
 #[command(name="fcvm", version, about="Firecracker VM runner for Podman containers")]
@@ -108,10 +107,3 @@ pub enum ModeOpt { Auto, Privileged, Rootless }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, ValueEnum)]
 pub enum MapModeOpt { Block, Sshfs, Nfs }
-
-impl From<ModeOpt> for Mode {
-    fn from(m: ModeOpt) -> Self { match m { ModeOpt::Auto => Mode::Auto, ModeOpt::Privileged => Mode::Privileged, ModeOpt::Rootless => Mode::Rootless } }
-}
-impl From<MapModeOpt> for MapMode {
-    fn from(m: MapModeOpt) -> Self { match m { MapModeOpt::Block => MapMode::Block, MapModeOpt::Sshfs => MapMode::Sshfs, MapModeOpt::Nfs => MapMode::Nfs } }
-}
