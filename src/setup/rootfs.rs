@@ -7,47 +7,6 @@ use tracing::{info, warn};
 
 use crate::paths;
 
-/// Find the fc-agent binary
-///
-/// Both fcvm and fc-agent are workspace members built together with:
-///   cargo build --release
-///
-/// Search order:
-/// 1. Same directory as current exe (for cargo install)
-/// 2. Parent directory (for tests running from target/release/deps/)
-/// 3. FC_AGENT_PATH environment variable
-fn find_fc_agent_binary() -> Result<PathBuf> {
-    let exe_path = std::env::current_exe().context("getting current executable path")?;
-    let exe_dir = exe_path.parent().context("getting executable directory")?;
-
-    // Check same directory (cargo install case)
-    let fc_agent = exe_dir.join("fc-agent");
-    if fc_agent.exists() {
-        return Ok(fc_agent);
-    }
-
-    // Check parent directory (test case: exe in target/release/deps/, agent in target/release/)
-    if let Some(parent) = exe_dir.parent() {
-        let fc_agent_parent = parent.join("fc-agent");
-        if fc_agent_parent.exists() {
-            return Ok(fc_agent_parent);
-        }
-    }
-
-    // Fallback: environment variable override for special cases
-    if let Ok(path) = std::env::var("FC_AGENT_PATH") {
-        let p = PathBuf::from(&path);
-        if p.exists() {
-            return Ok(p);
-        }
-    }
-
-    bail!(
-        "fc-agent binary not found at {} or via FC_AGENT_PATH env var.\n\
-         Build with: cargo build --release",
-        fc_agent.display()
-    )
-}
 
 /// Helper to convert Path to str with proper error handling
 fn path_to_str(path: &Path) -> Result<&str> {
@@ -464,8 +423,9 @@ async fn extract_root_partition(qcow2_path: &Path, output_path: &Path) -> Result
 /// This modifies the qcow2 image in-place, adding Podman, fc-agent, and all configs.
 /// Much simpler and more robust than manual mount/chroot/unmount.
 async fn customize_ubuntu_cloud_image(image_path: &Path) -> Result<()> {
-    // Find fc-agent binary
-    let fc_agent_src = find_fc_agent_binary()?;
+    // Extract embedded fc-agent binary to temp file
+    let fc_agent_src = super::extract_fc_agent()
+        .context("extracting embedded fc-agent binary")?;
 
     info!("running virt-customize on cloud image");
 

@@ -9,6 +9,9 @@ KERNEL_DIR ?= ~/linux-firecracker
 CONTAINER_IMAGE := fcvm-test
 CONTAINER_ARCH ?= aarch64
 
+# Musl target for static fc-agent build (auto-detect from host arch)
+MUSL_TARGET := $(shell uname -m | sed 's/aarch64/aarch64-unknown-linux-musl/;s/x86_64/x86_64-unknown-linux-musl/')
+
 # Test commands - organized by root requirement
 # No root required:
 TEST_UNIT := cargo test --release --lib
@@ -175,8 +178,12 @@ setup-all: setup-btrfs setup-kernel setup-rootfs
 #------------------------------------------------------------------------------
 
 build:
-	@echo "==> Building..."
-	cargo build --release
+	@echo "==> Building fc-agent (static musl binary)..."
+	cargo build --release -p fc-agent --target $(MUSL_TARGET)
+	@mkdir -p target/release
+	cp target/$(MUSL_TARGET)/release/fc-agent target/release/fc-agent
+	@echo "==> Building fcvm (with embedded fc-agent)..."
+	cargo build --release -p fcvm
 
 clean:
 	cargo clean
