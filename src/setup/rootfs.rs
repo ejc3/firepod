@@ -111,8 +111,8 @@ pub async fn ensure_rootfs() -> Result<PathBuf> {
 /// Downloads Ubuntu 24.04 cloud image (cached), customizes it with virt-customize,
 /// extracts to ext4, then installs packages.
 async fn create_ubuntu_rootfs(output_path: &Path) -> Result<()> {
-    // Download Ubuntu cloud image (cached)
-    let cloud_image = download_ubuntu_cloud_image().await?;
+    // Get base cloud image (default: Ubuntu 24.04, override with FCVM_BASE_IMAGE)
+    let cloud_image = get_base_cloud_image().await?;
 
     info!("customizing Ubuntu cloud image with virt-customize");
 
@@ -130,39 +130,72 @@ async fn create_ubuntu_rootfs(output_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Download Ubuntu cloud image (cached)
-async fn download_ubuntu_cloud_image() -> Result<PathBuf> {
+/// Default Ubuntu cloud image URL (with {arch} placeholder)
+const DEFAULT_BASE_IMAGE_URL: &str =
+    "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-{arch}.img";
+
+/// Get or download base cloud image (cached)
+///
+/// Checks --base-image CLI flag first:
+/// - If set to a local path, uses that file directly
+/// - If set to a URL, downloads and caches it
+/// - If not set, uses the default Ubuntu 24.04 cloud image
+async fn get_base_cloud_image() -> Result<PathBuf> {
+    // Check for custom base image from CLI flag
+    if let Some(custom_image) = paths::base_image() {
+        let custom_path = PathBuf::from(custom_image);
+
+        // If it's a local file, use it directly
+        if custom_path.exists() {
+            info!(path = %custom_path.display(), "using custom base image from --base-image");
+            return Ok(custom_path);
+        }
+
+        // If it looks like a URL, download it
+        if custom_image.starts_with("http://") || custom_image.starts_with("https://") {
+            return download_cloud_image(custom_image, "custom").await;
+        }
+
+        // Otherwise it's a path that doesn't exist
+        bail!(
+            "--base-image path does not exist: {}",
+            custom_path.display()
+        );
+    }
+
+    // Use default Ubuntu 24.04 cloud image
+    let cloud_arch = match std::env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        other => bail!("unsupported architecture: {}", other),
+    };
+
+    let image_url = DEFAULT_BASE_IMAGE_URL.replace("{arch}", cloud_arch);
+    download_cloud_image(&image_url, &format!("ubuntu-24.04-{cloud_arch}")).await
+}
+
+/// Download a cloud image from URL (cached by name)
+async fn download_cloud_image(url: &str, cache_name: &str) -> Result<PathBuf> {
     let cache_dir = paths::base_dir().join("cache");
     tokio::fs::create_dir_all(&cache_dir)
         .await
         .context("creating cache directory")?;
 
-    // Detect architecture and use appropriate cloud image
-    let (arch_name, cloud_arch) = match std::env::consts::ARCH {
-        "x86_64" => ("amd64", "amd64"),
-        "aarch64" => ("arm64", "arm64"),
-        other => bail!("unsupported architecture: {}", other),
-    };
-
-    let image_url = format!(
-        "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-{cloud_arch}.img"
-    );
-    let image_path = cache_dir.join(format!("ubuntu-24.04-{arch_name}.img"));
+    let image_path = cache_dir.join(format!("{cache_name}.img"));
 
     // Return cached image if it exists
     if image_path.exists() {
-        info!(path = %image_path.display(), "using cached Ubuntu cloud image");
+        info!(path = %image_path.display(), "using cached cloud image");
         return Ok(image_path);
     }
 
-    info!(url = %image_url, "downloading Ubuntu 24.04 cloud image");
-    info!("download size: ~644MB (one-time, cached for future use)");
-    info!("download may take 5-15 minutes depending on network speed");
+    info!(url = %url, "downloading cloud image");
+    info!("download may take several minutes depending on network speed");
 
     // Download with reqwest
     let client = reqwest::Client::new();
     let response = client
-        .get(image_url)
+        .get(url)
         .send()
         .await
         .context("downloading cloud image")?;

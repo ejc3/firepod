@@ -159,3 +159,24 @@ pub fn vm_runtime_dir(vm_id: &str) -> PathBuf {
 pub fn snapshot_dir() -> PathBuf {
     base_dir().join("snapshots")
 }
+
+// ============================================================================
+// Base Image Configuration
+// ============================================================================
+
+/// Global base image override, set once at startup from --base-image flag
+static BASE_IMAGE: OnceLock<String> = OnceLock::new();
+
+/// Initialize base image from CLI argument.
+/// Must be called before ensure_rootfs() if overriding the default.
+pub fn init_base_image(image: Option<&str>) {
+    if let Some(img) = image {
+        let _ = BASE_IMAGE.set(img.to_string());
+    }
+}
+
+/// Get the configured base image, if any.
+/// Returns None if no override was specified (use default Ubuntu 24.04).
+pub fn base_image() -> Option<&'static str> {
+    BASE_IMAGE.get().map(|s| s.as_str())
+}

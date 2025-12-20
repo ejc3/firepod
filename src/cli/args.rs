@@ -15,6 +15,14 @@ pub struct Cli {
     #[arg(long, global = true, env = "FCVM_BASE_DIR")]
     pub base_dir: Option<String>,
 
+    /// Base cloud image URL or local path (default: Ubuntu 24.04)
+    /// Used when creating the rootfs for the first time.
+    /// Examples:
+    ///   --base-image /path/to/custom.qcow2
+    ///   --base-image https://cloud-images.ubuntu.com/.../ubuntu-22.04-server-cloudimg-arm64.img
+    #[arg(long, global = true)]
+    pub base_image: Option<String>,
+
     #[command(subcommand)]
     pub cmd: Commands,
 }

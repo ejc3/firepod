@@ -35,6 +35,9 @@ async fn main() -> Result<()> {
     // Initialize base directory from CLI argument (must be done before any path access)
     paths::init_base_dir(cli.base_dir.as_deref());
 
+    // Initialize base image from CLI argument (used when creating rootfs)
+    paths::init_base_image(cli.base_image.as_deref());
+
     // Initialize logging
     // If --sub-process flag is set, disable timestamps AND level (subprocess mode)
     // Parent process already shows timestamp and level, so subprocess just shows the message
