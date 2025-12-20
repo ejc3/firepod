@@ -25,6 +25,14 @@ A Rust implementation that launches Firecracker microVMs to run Podman container
 - For rootless networking: slirp4netns
 - For building rootfs: virt-customize (libguestfs-tools), qemu-utils, e2fsprogs
 
+**Required Forks** (patches pending upstream)
+```bash
+# Clone these alongside fcvm (not inside it)
+git clone https://github.com/ejc3/fuse-backend-rs ../fuse-backend-rs
+git clone https://github.com/ejc3/fuser ../fuser
+```
+See: [fuse-backend-rs PR #220](https://github.com/cloud-hypervisor/fuse-backend-rs/pull/220), [fuser PR #421](https://github.com/cberner/fuser/pull/421)
+
 **Storage**
 - btrfs filesystem at `/mnt/fcvm-btrfs` (for CoW disk snapshots)
 - Pre-built Firecracker kernel at `/mnt/fcvm-btrfs/kernels/vmlinux.bin`

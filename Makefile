@@ -1,9 +1,9 @@
 SHELL := /bin/bash
 
-# Paths (can be overridden via environment for CI)
-FUSE_BACKEND_RS ?= /home/ubuntu/fuse-backend-rs
-FUSER ?= /home/ubuntu/fuser
-KERNEL_DIR ?= ~/linux-firecracker
+# Paths (relative to fcvm repo root, can be overridden via environment)
+FUSE_BACKEND_RS ?= ../fuse-backend-rs
+FUSER ?= ../fuser
+KERNEL_DIR ?= ../linux-firecracker
 
 # Container image name and architecture
 CONTAINER_IMAGE := fcvm-test

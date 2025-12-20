@@ -9,6 +9,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# NOTE: This project depends on forked versions of fuse-backend-rs and fuser
+# with patches not yet upstreamed:
+#   - https://github.com/cloud-hypervisor/fuse-backend-rs/pull/220
+#   - https://github.com/cberner/fuser/pull/421
+
 jobs:
   # Fast jobs run in parallel on every PR and push
 
