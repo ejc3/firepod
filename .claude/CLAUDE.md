@@ -55,6 +55,15 @@ fcvm exec --pid <PID> -c -- wget -q -O - --timeout=10 http://ifconfig.me
 
 Exception: For **forked libraries** (like fuse-backend-rs), we maintain compatibility with upstream to enable merging upstream changes.
 
+### Rootless-First Philosophy
+
+**Prefer rootless operations whenever possible.** If something can be solved without root, do it that way.
+
+- Use `--network rootless` (slirp4netns) instead of bridged when sudo isn't available
+- Use `--base-dir /tmp/...` to write to user-writable directories
+- Tests should run without sudo when possible - use rootless mode + temp directories
+- Only require root when fundamentally necessary (e.g., modifying system rootfs)
+
 ### Development Workflow (PR-Based)
 
 **Local commits are fast. Branch before push.**

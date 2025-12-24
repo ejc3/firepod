@@ -19,6 +19,21 @@ fn path_to_str(path: &Path) -> Result<&str> {
 /// Caches the rootfs filesystem - only creates it once.
 /// The base rootfs is immutable after creation to prevent corruption when VMs start in parallel.
 pub async fn ensure_rootfs() -> Result<PathBuf> {
+    // Validate --base-image early: if specified as a local path that doesn't exist, fail fast
+    // This check happens before looking for existing rootfs, so we catch errors immediately
+    if let Some(custom_image) = paths::base_image() {
+        let custom_path = PathBuf::from(custom_image);
+        // Only validate local paths (not URLs)
+        if !custom_image.starts_with("http://") && !custom_image.starts_with("https://") {
+            if !custom_path.exists() {
+                bail!(
+                    "--base-image path does not exist: {}",
+                    custom_path.display()
+                );
+            }
+        }
+    }
+
     let rootfs_dir = paths::rootfs_dir();
     let rootfs_path = paths::base_rootfs();
     let lock_file = rootfs_dir.join(".rootfs-creation.lock");
@@ -176,7 +191,7 @@ async fn get_base_cloud_image() -> Result<PathBuf> {
 
 /// Download a cloud image from URL (cached by name)
 async fn download_cloud_image(url: &str, cache_name: &str) -> Result<PathBuf> {
-    let cache_dir = paths::base_dir().join("cache");
+    let cache_dir = paths::cache_dir();
     tokio::fs::create_dir_all(&cache_dir)
         .await
         .context("creating cache directory")?;

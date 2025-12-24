@@ -180,3 +180,27 @@ pub fn init_base_image(image: Option<&str>) {
 pub fn base_image() -> Option<&'static str> {
     BASE_IMAGE.get().map(|s| s.as_str())
 }
+
+// ============================================================================
+// Cache Directory Configuration
+// ============================================================================
+
+/// Global cache directory override, set once at startup from --cache-dir flag
+static CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Initialize cache directory from CLI argument.
+/// Must be called before any cache operations if overriding the default.
+pub fn init_cache_dir(dir: Option<&str>) {
+    if let Some(d) = dir {
+        let _ = CACHE_DIR.set(PathBuf::from(shellexpand::tilde(d).as_ref()));
+    }
+}
+
+/// Directory for cached cloud images.
+/// Defaults to {base_dir}/cache, but can be overridden with --cache-dir.
+pub fn cache_dir() -> PathBuf {
+    CACHE_DIR
+        .get()
+        .cloned()
+        .unwrap_or_else(|| base_dir().join("cache"))
+}

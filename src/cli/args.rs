@@ -23,6 +23,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub base_image: Option<String>,
 
+    /// Cache directory for downloaded cloud images (default: {base_dir}/cache)
+    #[arg(long, global = true)]
+    pub cache_dir: Option<String>,
+
     #[command(subcommand)]
     pub cmd: Commands,
 }
