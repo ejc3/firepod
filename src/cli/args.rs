@@ -1,5 +1,4 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use clap_complete::Shell;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -11,6 +10,10 @@ pub struct Cli {
     /// Running as a subprocess (disables timestamp and level in logs)
     #[arg(long, global = true)]
     pub sub_process: bool,
+
+    /// Base directory for all fcvm data (default: /mnt/fcvm-btrfs or FCVM_BASE_DIR env)
+    #[arg(long, global = true, env = "FCVM_BASE_DIR")]
+    pub base_dir: Option<String>,
 
     #[command(subcommand)]
     pub cmd: Commands,
@@ -29,39 +32,7 @@ pub enum Commands {
     /// Execute a command in a running VM
     Exec(ExecArgs),
     /// Setup kernel and rootfs (kernel ~15MB download, rootfs ~10GB creation, takes 5-10 minutes)
-    Setup(SetupArgs),
-    /// Generate shell completions
-    Completions(CompletionsArgs),
-}
-
-// ============================================================================
-// Setup Command
-// ============================================================================
-
-#[derive(Args, Debug)]
-pub struct SetupArgs {
-    /// Generate default config file at ~/.config/fcvm/rootfs-config.toml and exit
-    #[arg(long)]
-    pub generate_config: bool,
-
-    /// Overwrite existing config when using --generate-config
-    #[arg(long, requires = "generate_config")]
-    pub force: bool,
-
-    /// Path to custom rootfs config file
-    #[arg(long)]
-    pub config: Option<String>,
-}
-
-// ============================================================================
-// Completions Command
-// ============================================================================
-
-#[derive(Args, Debug)]
-pub struct CompletionsArgs {
-    /// Shell to generate completions for
-    #[arg(value_enum)]
-    pub shell: Shell,
+    Setup,
 }
 
 // ============================================================================
@@ -143,11 +114,6 @@ pub struct RunArgs {
     /// Without this flag, fcvm will fail if setup hasn't been run
     #[arg(long)]
     pub setup: bool,
-
-    /// Custom kernel path (overrides default kernel from setup)
-    /// Use for inception support with a KVM-enabled kernel
-    #[arg(long)]
-    pub kernel: Option<String>,
 }
 
 // ============================================================================

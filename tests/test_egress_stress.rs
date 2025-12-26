@@ -486,7 +486,7 @@ async fn get_host_primary_ip() -> Result<String> {
 #[allow(dead_code)]
 async fn get_host_ip_from_state(pid: u32) -> Result<String> {
     // Read state file to get host_ip
-    let state_dir = fcvm::paths::state_dir();
+    let state_dir = "/mnt/fcvm-btrfs/state";
 
     // Find state file for this PID
     let output = tokio::process::Command::new("bash")
@@ -494,8 +494,7 @@ async fn get_host_ip_from_state(pid: u32) -> Result<String> {
             "-c",
             &format!(
                 "grep -l '\"pid\": {}' {}/*.json 2>/dev/null | head -1",
-                pid,
-                state_dir.display()
+                pid, state_dir
             ),
         ])
         .output()
@@ -507,7 +506,7 @@ async fn get_host_ip_from_state(pid: u32) -> Result<String> {
         let output = tokio::process::Command::new("bash")
             .args(["-c", &format!(
                 "for f in {}/*.json; do if grep -q '\"pid\": {}' \"$f\" 2>/dev/null; then echo \"$f\"; break; fi; done",
-                state_dir.display(), pid
+                state_dir, pid
             )])
             .output()
             .await?;
