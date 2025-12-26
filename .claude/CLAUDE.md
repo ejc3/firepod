@@ -77,22 +77,6 @@ fcvm snapshot serve my-snapshot      # Start UFFD server (prints serve PID)
 fcvm snapshot run --pid <serve_pid> --name clone1 --network bridged
 ```
 
-### Local Test Containers
-
-**Build test logic into a container, run with fcvm.** No weird feature flags or binary copying.
-
-```bash
-# Build with localhost/ prefix
-podman build -t localhost/mytest -f Containerfile.mytest .
-
-# Run with fcvm (exports via skopeo automatically)
-sudo fcvm podman run --name test --network bridged \
-    --map /mnt/fcvm-btrfs/test-data:/data \
-    localhost/mytest
-```
-
-See `Containerfile.libfuse-remap` and `Containerfile.pjdfstest` for examples.
-
 ### Manual E2E Testing with Claude Code
 
 **CRITICAL: VM commands BLOCK the terminal.** You MUST use Claude's `run_in_background: true` feature.
@@ -790,7 +774,7 @@ This ensures automatic cache invalidation when:
 **Package Download:**
 Packages are downloaded using `podman run ubuntu:{codename}` with `apt-get install --download-only`.
 This ensures packages match the target Ubuntu version (Noble/24.04), not the host OS.
-The `codename` is specified in `rootfs-config.toml`.
+The `codename` is specified in `rootfs-plan.toml`.
 
 **Setup Verification:**
 Layer 2 setup writes a marker file `/etc/fcvm-setup-complete` on successful completion.
@@ -808,48 +792,27 @@ tokio::process::Command::new("cp")
 ```
 
 ```rust
-// src/paths.rs - paths loaded from rootfs-config.toml [paths] section
-pub fn assets_dir() -> PathBuf  // Content-addressed: kernels, rootfs, initrd, image-cache
-pub fn data_dir() -> PathBuf    // Mutable: vm-disks, state, snapshots
+// src/paths.rs
+pub fn base_dir() -> PathBuf {
+    PathBuf::from("/mnt/fcvm-btrfs")
+}
 
 pub fn vm_runtime_dir(vm_id: &str) -> PathBuf {
-    data_dir().join("vm-disks").join(vm_id)
+    base_dir().join("vm-disks").join(vm_id)
 }
 ```
 
 **Setup**: Run `make setup-fcvm` before tests (called automatically by `make test-root` or `make container-test-root`).
 
-**Content-Addressed Caching**
+**⚠️ CRITICAL: Changing VM base image (fc-agent, rootfs)**
 
-All assets are content-addressed - changing the input automatically creates new output:
-- **Kernel**: Cached by URL hash. Different URL = new kernel.
-- **Rootfs**: Cached by setup script SHA. Change script = new rootfs.
-- **Initrd**: Cached by fc-agent binary SHA. Rebuild fc-agent = new initrd.
+When you change fc-agent or setup scripts, regenerate the rootfs:
+1. Delete existing rootfs: `sudo rm -f /mnt/fcvm-btrfs/rootfs/layer2-*.raw /mnt/fcvm-btrfs/initrd/fc-agent-*.initrd`
+2. Run setup: `make setup-fcvm`
 
-**NEVER manually delete cached assets.** Just rebuild and run `make setup-fcvm`:
-```bash
-# Change fc-agent code, then:
-cargo build --release -p fc-agent
-make setup-fcvm  # Creates new initrd with new SHA
+The rootfs is cached by SHA of setup script + kernel URL. Changes to these automatically invalidate the cache.
 
-# Change rootfs-config.toml, then:
-make setup-fcvm  # Creates new rootfs with new SHA
-```
-
-**Custom Kernel (Inception Support)**
-
-Use `--kernel` flag to specify a local kernel path:
-```bash
-# Build custom kernel with CONFIG_KVM=y
-./kernel/build.sh
-
-# Run VM with custom kernel
-sudo fcvm podman run --name my-vm --network bridged \
-    --kernel /mnt/fcvm-btrfs/kernels/vmlinux-6.12.10-785344093fa0.bin \
-    nginx:alpine
-```
-
-NEVER manually edit rootfs files. The setup script in `rootfs-config.toml` and `src/setup/rootfs.rs` control what gets installed.
+NEVER manually edit rootfs files. The setup script in `rootfs-plan.toml` and `src/setup/rootfs.rs` control what gets installed.
 
 ### Memory Sharing (UFFD)
 
@@ -973,9 +936,9 @@ ERROR fcvm: Error: setting up rootfs: Rootfs not found. Run 'fcvm setup' first, 
 ```
 
 **What `fcvm setup` does:**
-1. Downloads Kata kernel from URL in `rootfs-config.toml` (~15MB, cached by URL hash)
+1. Downloads Kata kernel from URL in `rootfs-plan.toml` (~15MB, cached by URL hash)
 2. Downloads packages using `podman run ubuntu:noble` with `apt-get install --download-only`
-   - Packages specified in `rootfs-config.toml` (podman, crun, fuse-overlayfs, skopeo, fuse3, haveged, chrony, strace)
+   - Packages specified in `rootfs-plan.toml` (podman, crun, fuse-overlayfs, skopeo, fuse3, haveged, chrony, strace)
    - Uses target Ubuntu version (noble/24.04) to get correct package versions
 3. Creates Layer 2 rootfs (~10GB):
    - Downloads Ubuntu cloud image
@@ -987,23 +950,21 @@ ERROR fcvm: Error: setting up rootfs: Rootfs not found. Run 'fcvm setup' first, 
 **Kernel source**: Kata Containers kernel (6.12.47 from Kata 3.24.0 release) with `CONFIG_FUSE_FS=y` built-in.
 
 ### Data Layout
-
-Paths are configured in `rootfs-config.toml` under `[paths]`:
-- `assets_dir`: Content-addressed files (shared across inception levels)
-- `data_dir`: Mutable per-instance data (separate per inception level)
-
 ```
-assets_dir (default: /mnt/fcvm-btrfs)
-├── kernels/vmlinux-{sha}.bin     # Kernel (SHA of URL)
-├── rootfs/layer2-{sha}.raw       # Base image (~10GB, SHA of setup script)
-├── initrd/fc-agent-{sha}.initrd  # fc-agent injection (SHA of binary)
-├── image-cache/sha256:{digest}/  # Container image layers
-└── cache/                        # Downloaded cloud images
-
-data_dir (default: /mnt/fcvm-btrfs, override per inception level)
-├── vm-disks/{vm_id}/disks/       # CoW reflink copies per VM
-├── state/{vm_id}.json            # VM state files
-└── snapshots/{name}/             # Firecracker snapshots
+/mnt/fcvm-btrfs/           # btrfs filesystem (CoW reflinks work here)
+├── kernels/
+│   ├── vmlinux.bin        # Symlink to active kernel
+│   └── vmlinux-{sha}.bin  # Kernel files (SHA of URL for cache key)
+├── rootfs/
+│   └── layer2-{sha}.raw   # Base Ubuntu + Podman image (~10GB, SHA of setup script)
+├── initrd/
+│   └── fc-agent-{sha}.initrd  # fc-agent injection initrd (SHA of binary)
+├── vm-disks/
+│   └── vm-{id}/
+│       └── disks/rootfs.raw   # CoW reflink copy per VM
+├── snapshots/             # Firecracker snapshots
+├── state/                 # VM state JSON files
+└── cache/                 # Downloaded cloud images
 ```
 
 ## Key Learnings
