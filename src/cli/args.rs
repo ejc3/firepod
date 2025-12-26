@@ -31,6 +31,27 @@ pub enum Commands {
     Snapshots,
     /// Execute a command in a running VM
     Exec(ExecArgs),
+    /// Setup kernel and rootfs (kernel ~15MB download, rootfs ~10GB creation, takes 5-10 minutes)
+    Setup(SetupArgs),
+}
+
+// ============================================================================
+// Setup Command
+// ============================================================================
+
+#[derive(Args, Debug)]
+pub struct SetupArgs {
+    /// Generate default config file at ~/.config/fcvm/rootfs-config.toml and exit
+    #[arg(long)]
+    pub generate_config: bool,
+
+    /// Overwrite existing config when using --generate-config
+    #[arg(long, requires = "generate_config")]
+    pub force: bool,
+
+    /// Path to custom rootfs config file
+    #[arg(long)]
+    pub config: Option<String>,
 }
 
 // ============================================================================
@@ -107,6 +128,11 @@ pub struct RunArgs {
     /// Useful for diagnosing fc-agent startup issues
     #[arg(long)]
     pub strace_agent: bool,
+
+    /// Run setup if kernel/rootfs are missing (takes 5-10 minutes on first run)
+    /// Without this flag, fcvm will fail if setup hasn't been run
+    #[arg(long)]
+    pub setup: bool,
 }
 
 // ============================================================================

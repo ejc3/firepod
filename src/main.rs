@@ -40,12 +40,14 @@ async fn main() -> Result<()> {
     // Parent process already shows timestamp and level, so subprocess just shows the message
     // But KEEP target tags to show the nesting hierarchy!
     // Otherwise, show full formatting (outermost process)
+    // Use RUST_LOG if set, otherwise default to INFO
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"));
+
     if cli.sub_process {
         // Subprocesses NEVER have colors (their output is captured and re-logged)
         tracing_subscriber::fmt()
-            .with_env_filter(
-                EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()),
-            )
+            .with_env_filter(env_filter)
             .with_writer(std::io::stderr) // Logs to stderr, keep stdout clean for command output
             .with_target(true) // KEEP targets to show nesting hierarchy
             .without_time()
@@ -54,11 +56,10 @@ async fn main() -> Result<()> {
             .init();
     } else {
         // Parent process: only use colors when outputting to a TTY (not when piped to file)
-        let use_color = atty::is(atty::Stream::Stderr);
+        use std::io::IsTerminal;
+        let use_color = std::io::stderr().is_terminal();
         tracing_subscriber::fmt()
-            .with_env_filter(
-                EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()),
-            )
+            .with_env_filter(env_filter)
             .with_writer(std::io::stderr) // Logs to stderr, keep stdout clean for command output
             .with_target(true) // Show targets for all processes
             .with_ansi(use_color) // Only use ANSI when outputting to TTY
@@ -72,6 +73,7 @@ async fn main() -> Result<()> {
         Commands::Snapshot(args) => commands::cmd_snapshot(args).await,
         Commands::Snapshots => commands::cmd_snapshots().await,
         Commands::Exec(args) => commands::cmd_exec(args).await,
+        Commands::Setup(args) => commands::cmd_setup(args).await,
     };
 
     // Handle errors

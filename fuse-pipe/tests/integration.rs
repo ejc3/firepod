@@ -12,12 +12,11 @@ mod common;
 use std::fs;
 use std::os::unix::io::AsRawFd;
 
-use common::{cleanup, require_nonroot, unique_paths, FuseMount};
+use common::{cleanup, unique_paths, FuseMount};
 use nix::unistd::{lseek, Whence};
 
 #[test]
 fn test_create_and_read_file() {
-    require_nonroot();
     let (data_dir, mount_dir) = unique_paths("fuse-integ");
     let fuse = FuseMount::new(&data_dir, &mount_dir, 1);
 
@@ -33,7 +32,6 @@ fn test_create_and_read_file() {
 
 #[test]
 fn test_create_directory() {
-    require_nonroot();
     let (data_dir, mount_dir) = unique_paths("fuse-integ");
     let fuse = FuseMount::new(&data_dir, &mount_dir, 1);
 
@@ -48,7 +46,6 @@ fn test_create_directory() {
 
 #[test]
 fn test_list_directory() {
-    require_nonroot();
     let (data_dir, mount_dir) = unique_paths("fuse-integ");
     let fuse = FuseMount::new(&data_dir, &mount_dir, 1);
     let mount = fuse.mount_path();
@@ -77,7 +74,6 @@ fn test_list_directory() {
 
 #[test]
 fn test_nested_file() {
-    require_nonroot();
     let (data_dir, mount_dir) = unique_paths("fuse-integ");
     let fuse = FuseMount::new(&data_dir, &mount_dir, 1);
 
@@ -99,7 +95,6 @@ fn test_nested_file() {
 
 #[test]
 fn test_file_metadata() {
-    require_nonroot();
     let (data_dir, mount_dir) = unique_paths("fuse-integ");
     let fuse = FuseMount::new(&data_dir, &mount_dir, 1);
 
@@ -120,7 +115,6 @@ fn test_file_metadata() {
 
 #[test]
 fn test_rename_across_directories() {
-    require_nonroot();
     let (data_dir, mount_dir) = unique_paths("fuse-integ");
     let fuse = FuseMount::new(&data_dir, &mount_dir, 1);
     let mount = fuse.mount_path();
@@ -150,7 +144,6 @@ fn test_rename_across_directories() {
 
 #[test]
 fn test_symlink_and_readlink() {
-    require_nonroot();
     let (data_dir, mount_dir) = unique_paths("fuse-integ");
     let fuse = FuseMount::new(&data_dir, &mount_dir, 1);
     let mount = fuse.mount_path();
@@ -176,15 +169,56 @@ fn test_symlink_and_readlink() {
 
 #[test]
 fn test_hardlink_survives_source_removal() {
-    require_nonroot();
     let (data_dir, mount_dir) = unique_paths("fuse-integ");
+    eprintln!("=== Hardlink test paths ===");
+    eprintln!("data_dir: {:?}", data_dir);
+    eprintln!("mount_dir: {:?}", mount_dir);
+
+    // First check if the underlying data_dir filesystem supports hardlinks
+    fs::create_dir_all(&data_dir).expect("create data_dir");
+    let test_src = data_dir.join("hardlink_test.txt");
+    let test_link = data_dir.join("hardlink_test_link.txt");
+    fs::write(&test_src, "test").expect("write test file");
+    match fs::hard_link(&test_src, &test_link) {
+        Ok(()) => {
+            eprintln!("Underlying FS supports hardlinks");
+            fs::remove_file(&test_link).ok();
+        }
+        Err(e) => {
+            eprintln!("Underlying FS does NOT support hardlinks: {}", e);
+            eprintln!("Skipping test - this is expected on overlayfs/CI environments");
+            fs::remove_file(&test_src).ok();
+            cleanup(&data_dir, &mount_dir);
+            return; // Skip test
+        }
+    }
+
+    // Check linkat with AT_EMPTY_PATH (used by fuse-backend-rs passthrough)
+    fs::remove_file(&test_src).ok();
+    if !common::supports_at_empty_path(&data_dir) {
+        cleanup(&data_dir, &mount_dir);
+        return;
+    }
+
     let fuse = FuseMount::new(&data_dir, &mount_dir, 1);
     let mount = fuse.mount_path();
 
     let source = mount.join("source.txt");
     let link = mount.join("link.txt");
     fs::write(&source, "hardlink").expect("write source");
-    fs::hard_link(&source, &link).expect("create hardlink");
+    if let Err(e) = fs::hard_link(&source, &link) {
+        eprintln!("=== Hardlink failed ===");
+        eprintln!("source: {:?} exists={}", source, source.exists());
+        eprintln!("link: {:?}", link);
+        eprintln!(
+            "mount contents: {:?}",
+            fs::read_dir(mount).ok().map(|d| d
+                .filter_map(|e| e.ok())
+                .map(|e| e.file_name())
+                .collect::<Vec<_>>())
+        );
+        panic!("create hardlink failed: {}", e);
+    }
 
     fs::remove_file(&source).expect("remove source");
 
@@ -199,7 +233,6 @@ fn test_hardlink_survives_source_removal() {
 
 #[test]
 fn test_multi_reader_mount_basic_io() {
-    require_nonroot();
     let (data_dir, mount_dir) = unique_paths("fuse-integ");
     let fuse = FuseMount::new(&data_dir, &mount_dir, 4);
     let mount = fuse.mount_path().to_path_buf();
@@ -229,7 +262,6 @@ fn test_multi_reader_mount_basic_io() {
 /// Test that lseek supports negative offsets relative to SEEK_END.
 #[test]
 fn test_lseek_supports_negative_offsets() {
-    require_nonroot();
     common::increase_ulimit();
 
     let (data_dir, mount_dir) = unique_paths("fuse-integ");

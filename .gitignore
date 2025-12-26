@@ -8,3 +8,5 @@ sync-test/
 # Local settings (machine-specific)
 *.local.*
 *.local
+cargo-home/
+.local/
