@@ -459,8 +459,8 @@ pub fn generate_setup_script(plan: &Plan) -> String {
 ///
 /// Writes the embedded default config to ~/.config/fcvm/rootfs-config.toml
 pub fn generate_config(force: bool) -> Result<PathBuf> {
-    let proj_dirs = ProjectDirs::from("", "", "fcvm")
-        .context("Could not determine config directory")?;
+    let proj_dirs =
+        ProjectDirs::from("", "", "fcvm").context("Could not determine config directory")?;
     let config_dir = proj_dirs.config_dir();
     let config_path = config_dir.join(CONFIG_FILE);
 
@@ -531,13 +531,17 @@ pub fn find_config_file(explicit_path: Option<&str>) -> Result<PathBuf> {
         }
     }
 
-    // 5. Check CARGO_MANIFEST_DIR for development builds
-    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(CONFIG_FILE);
-    if manifest_path.exists() {
-        return Ok(manifest_path);
+    // 5. Check CARGO_MANIFEST_DIR for development builds (debug only)
+    // In release builds (cargo install), this path would be stale and misleading
+    #[cfg(debug_assertions)]
+    {
+        let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(CONFIG_FILE);
+        if manifest_path.exists() {
+            return Ok(manifest_path);
+        }
     }
 
-    // 5. Error with helpful message
+    // 6. Error with helpful message
     bail!(
         "No rootfs config found.\n\n\
          Searched:\n  \
@@ -546,7 +550,9 @@ pub fn find_config_file(explicit_path: Option<&str>) -> Result<PathBuf> {
          <binary-dir>/{}\n\n\
          Generate the default config with:\n  \
          fcvm setup --generate-config",
-        CONFIG_FILE, CONFIG_FILE, CONFIG_FILE
+        CONFIG_FILE,
+        CONFIG_FILE,
+        CONFIG_FILE
     );
 }
 
