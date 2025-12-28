@@ -211,7 +211,7 @@ jobs:
           sudo dmesg | grep -iE 'userfault|uffd|kvm|firecracker|oom|killed|segfault|page.fault' > /tmp/fcvm-test-logs/dmesg-filtered.log || true
       - name: Upload test logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-logs-host
           path: /tmp/fcvm-test-logs/
@@ -279,7 +279,7 @@ jobs:
           sudo dmesg | grep -iE 'userfault|uffd|kvm|firecracker|oom|killed|segfault|page.fault' > /tmp/fcvm-test-logs/dmesg-filtered.log || true
       - name: Upload test logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-logs-container
           path: /tmp/fcvm-test-logs/
