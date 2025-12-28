@@ -34,15 +34,15 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: fcvm
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: ejc3/fuse-backend-rs
           ref: master
           path: fuse-backend-rs
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: ejc3/fuser
           ref: master
@@ -83,15 +83,15 @@ jobs:
     name: Packaging
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: fcvm
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: ejc3/fuse-backend-rs
           ref: master
           path: fuse-backend-rs
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: ejc3/fuser
           ref: master
@@ -123,15 +123,15 @@ jobs:
     if: ${{ github.event.inputs.job != 'container' }}
     runs-on: buildjet-32vcpu-ubuntu-2204
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: fcvm
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: ejc3/fuse-backend-rs
           ref: master
           path: fuse-backend-rs
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: ejc3/fuser
           ref: master
@@ -226,15 +226,15 @@ jobs:
     if: ${{ github.event.inputs.job != 'host' }}
     runs-on: buildjet-32vcpu-ubuntu-2204
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: fcvm
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: ejc3/fuse-backend-rs
           ref: master
           path: fuse-backend-rs
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: ejc3/fuser
           ref: master
