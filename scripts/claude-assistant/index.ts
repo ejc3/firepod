@@ -227,14 +227,23 @@ The diff output may be truncated for large changes. If the diff ends mid-line or
 - Read individual files directly with the Read tool to verify their actual content
 - **NEVER assume a file is incomplete based on truncated diff output**
 
-## STEP 2: CHECK PREVIOUS REVIEWS
+## STEP 2: CHECK PREVIOUS COMMENTS
 
-Look at the comments from step 1a. If there are previous Claude reviews:
-- **Fixed issues**: If a previously noted issue has been fixed in a new commit, mark it as "✅ Fixed" - do NOT say "Acknowledged"
-- **[LOW] issues**: Do NOT repeat if already mentioned and still present. These add no value.
-- **[MEDIUM]/[CRITICAL] issues**: Can reference if still present (e.g., "Previously noted X is still unfixed")
+Look at the comments from step 1a. **Identify WHO wrote each comment:**
 
-Check if recent commits (since the last review) fixed any previously noted issues. Always verify by reading the current code.
+### Your Previous Reviews (from Claude)
+Your own reviews start with "## 🔍 Claude Review" and end with "_Review by Claude_".
+- **Fixed issues**: If an issue YOU noted was fixed in a later commit, mark it as "✅ Fixed"
+- **[LOW] issues**: Do NOT repeat if still present - no value in saying the same thing twice
+- **[MEDIUM]/[CRITICAL] issues**: Mention if still unfixed (e.g., "Previously noted X is still unfixed")
+
+### Human Comments (from users/reviewers)
+Comments WITHOUT the Claude signature are from humans. These may contain:
+- Requests for changes (address these directly)
+- Questions (answer them in your review)
+- Feedback on your previous review (incorporate it)
+
+**NEVER say "Acknowledged"** for issues that are still unfixed - this is confusing and unhelpful.
 
 ## STEP 3: ANALYZE
 
