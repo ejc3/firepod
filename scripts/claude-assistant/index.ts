@@ -28,6 +28,14 @@ const MAX_TURNS = parseInt(process.env.CLAUDE_MAX_TURNS ?? "50", 10);
 // Branch naming convention for Claude-generated fix branches
 const FIX_BRANCH_PREFIX = "claude/fix-";
 
+// Handle SIGTERM (from GitHub cancel-in-progress or job timeout)
+// This allows us to distinguish "killed by signal" from "hung/crashed"
+process.on("SIGTERM", () => {
+  // Use synchronous write to ensure it flushes before exit
+  process.stdout.write("\n=== CLAUDE_ASSISTANT_TERMINATED_BY_SIGNAL ===\n");
+  process.exit(143); // Standard SIGTERM exit code (128 + 15)
+});
+
 type Mode = "review" | "ci-fix" | "respond";
 
 interface Context {
@@ -699,7 +707,8 @@ async function main(): Promise<void> {
   await runClaude(prompt);
 
   // Print completion marker - if this doesn't appear in logs, the job was truncated/killed
-  console.log("\n=== CLAUDE_ASSISTANT_COMPLETE ===\n");
+  // Use synchronous write to ensure it flushes before process exits
+  process.stdout.write("\n=== CLAUDE_ASSISTANT_COMPLETE ===\n");
 }
 
 main().catch((e) => {
