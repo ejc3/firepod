@@ -50,8 +50,9 @@ fn install_signal_handlers() {
     unsafe {
         // Use sigaction() instead of signal() for well-defined behavior
         // SA_RESETHAND: auto-reset to SIG_DFL after first invocation (no need to re-raise)
+        // Note: We use sa_handler (not sa_sigaction) since we're not using SA_SIGINFO
         let mut sa: libc::sigaction = std::mem::zeroed();
-        sa.sa_sigaction = signal_handler as usize;
+        sa.sa_handler = signal_handler as usize;
         sa.sa_flags = libc::SA_RESETHAND;
 
         libc::sigaction(libc::SIGTERM, &sa, std::ptr::null_mut());
