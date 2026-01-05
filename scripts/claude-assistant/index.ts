@@ -230,10 +230,11 @@ The diff output may be truncated for large changes. If the diff ends mid-line or
 ## STEP 2: CHECK PREVIOUS REVIEWS
 
 Look at the comments from step 1a. If there are previous Claude reviews:
-- **[LOW] issues**: Do NOT repeat if already mentioned. These add no value.
+- **Fixed issues**: If a previously noted issue has been fixed in a new commit, mark it as "✅ Fixed" - do NOT say "Acknowledged"
+- **[LOW] issues**: Do NOT repeat if already mentioned and still present. These add no value.
 - **[MEDIUM]/[CRITICAL] issues**: Can reference if still present (e.g., "Previously noted X is still unfixed")
 
-Only report NEW findings or still-present MEDIUM/CRITICAL issues.
+Check if recent commits (since the last review) fixed any previously noted issues. Always verify by reading the current code.
 
 ## STEP 3: ANALYZE
 
