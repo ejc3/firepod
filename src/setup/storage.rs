@@ -177,17 +177,20 @@ pub fn ensure_storage(config_path: Option<&str>) -> Result<()> {
 
     // Set ownership to the user who invoked sudo (if SUDO_USER is set)
     if let Ok(sudo_user) = std::env::var("SUDO_USER") {
-        info!("Setting ownership to {}", sudo_user);
-        let status = Command::new("chown")
-            .arg("-R")
-            .arg(format!("{}:{}", sudo_user, sudo_user))
-            .arg(&mount_point)
-            .status()
-            .context("executing chown")?;
+        // Validate that the user exists before using in chown
+        if let Some(user) = nix::unistd::User::from_name(&sudo_user).ok().flatten() {
+            info!("Setting ownership to {}", sudo_user);
+            let status = Command::new("chown")
+                .arg("-R")
+                .arg(format!("{}:{}", user.uid, user.gid))
+                .arg(&mount_point)
+                .status()
+                .context("executing chown")?;
 
-        if !status.success() {
-            // Non-fatal, just warn
-            tracing::warn!("Failed to set ownership to {}", sudo_user);
+            if !status.success() {
+                // Non-fatal, just warn
+                tracing::warn!("Failed to set ownership to {}", sudo_user);
+            }
         }
     }
 
