@@ -258,9 +258,45 @@ gh pr checks ${ctx.prNumber} --repo ${ctx.repository}
 When you edit files and create a fix PR:
 
 ### 1. Run lint locally BEFORE committing
+
+First, detect the project type and run appropriate linters:
+
 \`\`\`bash
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
+# Rust projects
+if [ -f "Cargo.toml" ]; then
+  cargo fmt --check
+  cargo clippy --all-targets -- -D warnings
+fi
+
+# Node.js/TypeScript projects
+if [ -f "package.json" ]; then
+  # Check for common lint scripts
+  if npm run --silent 2>&1 | grep -q "lint"; then
+    npm run lint
+  elif npm run --silent 2>&1 | grep -q "eslint"; then
+    npm run eslint
+  elif command -v eslint &> /dev/null; then
+    npx eslint .
+  fi
+
+  # Check formatting
+  if command -v prettier &> /dev/null; then
+    npx prettier --check .
+  fi
+fi
+
+# Python projects
+if [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
+  if command -v ruff &> /dev/null; then
+    ruff check .
+  elif command -v flake8 &> /dev/null; then
+    flake8 .
+  fi
+
+  if command -v black &> /dev/null; then
+    black --check .
+  fi
+fi
 \`\`\`
 
 If lint fails, fix the issues before committing. **NEVER push code that doesn't pass lint.**
