@@ -92,6 +92,7 @@ export PATH="$PWD/target/release:$PATH"
 
 # First-time setup (downloads kernel + builds rootfs, ~5 min)
 # Use sudo if btrfs storage needs to be created; skip sudo if already mounted
+# Note: sudo commands use explicit paths since sudo may not preserve PATH
 sudo ./target/release/fcvm setup
 
 # Run a container (rootless - no sudo needed)
