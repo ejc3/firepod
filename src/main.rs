@@ -2,9 +2,32 @@ use anyhow::Result;
 use clap::Parser;
 use fcvm::cli::Commands;
 use fcvm::{cli, commands, paths};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::error;
 use tracing_log::LogTracer;
 use tracing_subscriber::EnvFilter;
+
+/// Global flag for Ctrl+C handling
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+/// Install signal handlers early, before tokio runtime starts.
+/// This ensures Ctrl+C works even during long-running sync operations.
+fn install_signal_handlers() {
+    // SIGINT (Ctrl+C)
+    unsafe {
+        libc::signal(libc::SIGINT, handle_signal as libc::sighandler_t);
+        libc::signal(libc::SIGTERM, handle_signal as libc::sighandler_t);
+    }
+}
+
+extern "C" fn handle_signal(_: libc::c_int) {
+    if INTERRUPTED.swap(true, Ordering::SeqCst) {
+        // Second signal - force exit
+        std::process::exit(130);
+    }
+    // First signal - set flag and let cleanup happen
+    // The tokio signal handlers will also fire
+}
 
 /// Raise file descriptor limit for high-parallelism workloads.
 /// The fuse-pipe server can have many open files when serving parallel tests.
@@ -27,6 +50,10 @@ fn raise_resource_limits() {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Install signal handlers FIRST, before anything else
+    // This ensures Ctrl+C works even during long-running operations
+    install_signal_handlers();
+
     // Raise resource limits early for fuse-pipe server
     raise_resource_limits();
 
