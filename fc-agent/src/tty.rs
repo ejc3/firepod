@@ -116,6 +116,17 @@ pub fn run_with_pty_fd(vsock_fd: i32, command: &[String], tty: bool, interactive
                 unsafe {
                     libc::kill(pid, libc::SIGKILL);
                     libc::waitpid(pid, std::ptr::null_mut(), 0);
+                    // Clean up file descriptors before returning
+                    if tty && master_fd >= 0 {
+                        libc::close(master_fd);
+                    } else if !tty {
+                        if stdout_read >= 0 {
+                            libc::close(stdout_read);
+                        }
+                        if stdin_write >= 0 {
+                            libc::close(stdin_write);
+                        }
+                    }
                 }
                 return 1;
             }
@@ -130,6 +141,10 @@ pub fn run_with_pty_fd(vsock_fd: i32, command: &[String], tty: bool, interactive
                 unsafe {
                     libc::kill(pid, libc::SIGKILL);
                     libc::waitpid(pid, std::ptr::null_mut(), 0);
+                    // Clean up master_fd before returning
+                    if master_fd >= 0 {
+                        libc::close(master_fd);
+                    }
                 }
                 return 1;
             }
@@ -395,8 +410,13 @@ fn reader_loop(mut source: std::fs::File, vsock: &mut std::fs::File, child_pid: 
 
     // Wait for child and get exit code
     let mut status: libc::c_int = 0;
-    unsafe {
-        libc::waitpid(child_pid, &mut status, 0);
+    let wait_result = unsafe { libc::waitpid(child_pid, &mut status, 0) };
+    if wait_result < 0 {
+        eprintln!(
+            "[fc-agent] waitpid failed: {}",
+            std::io::Error::last_os_error()
+        );
+        return 1;
     }
 
     if libc::WIFEXITED(status) {

@@ -103,8 +103,10 @@ pub fn run_tty_session_connected(stream: UnixStream, tty: bool, interactive: boo
         restore_terminal(stdin_fd, termios);
     }
 
-    // Clean up writer thread handle
-    drop(writer_thread);
+    // Wait for writer thread to finish
+    if let Some(handle) = writer_thread {
+        let _ = handle.join();
+    }
 
     Ok(exit_code)
 }
@@ -146,7 +148,9 @@ fn setup_raw_terminal(stdin_fd: i32) -> Result<Option<libc::termios>> {
 /// Restore terminal to original settings
 fn restore_terminal(stdin_fd: i32, termios: libc::termios) {
     unsafe {
-        libc::tcsetattr(stdin_fd, libc::TCSANOW, &termios);
+        if libc::tcsetattr(stdin_fd, libc::TCSANOW, &termios) != 0 {
+            eprintln!("WARNING: Failed to restore terminal settings");
+        }
     }
 }
 
@@ -169,8 +173,11 @@ fn reader_loop(mut stream: std::os::unix::net::UnixStream, done: Arc<AtomicBool>
                     data.len(),
                     total_read
                 );
-                let _ = stdout.write_all(&data);
-                let _ = stdout.flush();
+                if stdout.write_all(&data).is_err() || stdout.flush().is_err() {
+                    debug!("reader_loop: stdout write failed");
+                    done.store(true, Ordering::Relaxed);
+                    break;
+                }
             }
             Ok(exec_proto::Message::Exit(code)) => {
                 debug!("reader_loop: received Exit({})", code);
@@ -194,7 +201,8 @@ fn reader_loop(mut stream: std::os::unix::net::UnixStream, done: Arc<AtomicBool>
                 }
                 debug!("reader_loop: error: {}", e);
                 eprintln!("\r\nProtocol error: {}\r", e);
-                break;
+                done.store(true, Ordering::Relaxed);
+                return Some(1);
             }
         }
     }
