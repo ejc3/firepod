@@ -113,6 +113,13 @@ for i in $(seq 1 $TIMEOUT); do
     if [[ $((i % 10)) -eq 0 ]]; then
         STATUS=$(echo "$LS_OUTPUT" | jq -r '.[0] | "\(.name): \(.health_status)"' 2>/dev/null || echo "no VMs yet")
         echo "  [$i s] $STATUS"
+        # Show full VM state for debugging
+        if [[ "$i" -eq 30 || "$i" -eq 60 || "$i" -eq 90 ]]; then
+            echo "  [debug] Full VM state:"
+            echo "$LS_OUTPUT" | jq '.[0]' 2>/dev/null || echo "  Failed to parse VM state"
+            echo "  [debug] VM log so far:"
+            head -20 /tmp/pkg-test-vm.log 2>/dev/null || echo "  Log file empty or not found"
+        fi
     fi
 
     # Check for errors in log
@@ -127,8 +134,12 @@ done
 
 if [[ "$HEALTHY" != "true" ]]; then
     echo "FAIL: VM did not become healthy within ${TIMEOUT}s"
+    echo "=== Final VM state ==="
+    sudo "$FCVM" ls --json | jq '.' || echo "Failed to get VM state"
     echo "=== VM log ==="
-    cat /tmp/pkg-test-vm.log
+    cat /tmp/pkg-test-vm.log || echo "Log file not found"
+    echo "=== System logs (journalctl) ==="
+    sudo journalctl -n 50 --no-pager | grep -i "fcvm\|firecracker" || echo "No relevant journalctl entries"
     exit 1
 fi
 
