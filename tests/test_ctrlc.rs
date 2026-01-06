@@ -29,7 +29,7 @@ async fn test_ctrlc_via_terminal() -> Result<()> {
     let fcvm_path = common::find_fcvm_binary()?;
     let (vm_name, _, _, _) = common::unique_names("ctrlc-term");
 
-    // Build command args - use bridged mode for reliable testing
+    // Build command args - use rootless mode for compatibility with container tests
     let args = [
         fcvm_path.to_str().unwrap(),
         "podman",
@@ -37,7 +37,7 @@ async fn test_ctrlc_via_terminal() -> Result<()> {
         "--name",
         &vm_name,
         "--network",
-        "bridged",
+        "rootless",
         "alpine:latest",
         "sleep",
         "120", // Long sleep so we can interrupt it
