@@ -239,6 +239,8 @@ Clone timing measured on c7g.metal ARM64 with `RUST_LOG=debug`:
 | Command + cleanup | ~300ms | Run echo + shutdown |
 | **Total** | **~610ms** | Full clone cycle with exec |
 
+*Note: Individual step times are from debug log analysis and may not sum exactly to the measured total due to overlapping operations and measurement precision.*
+
 The **core VM restore** (snapshot load + resume) is just **~10ms**. The remaining time is network setup, guest agent recovery, and cleanup.
 
 #### 10-Clone Test Results
