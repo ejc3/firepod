@@ -141,10 +141,10 @@ sudo ./fcvm setup
 # → Logs show VM booting, then "healthy" when nginx is ready
 
 # In another terminal:
-./fcvm ls
+sudo ./fcvm ls
 # → Shows "web" with PID, health status, network info
 
-./fcvm exec --name web -- cat /etc/os-release
+sudo ./fcvm exec --name web -- cat /etc/os-release
 # → Shows Alpine Linux info
 
 # Bridged networking (for full network access, requires sudo)
@@ -169,17 +169,17 @@ sudo ./fcvm podman run --name web-bridged --network bridged nginx:alpine
 ./fcvm podman run --name shell -it alpine:latest sh
 
 # JSON output for scripting
-./fcvm ls --json
-./fcvm ls --pid 12345    # Filter by PID
+sudo ./fcvm ls --json
+sudo ./fcvm ls --pid 12345    # Filter by PID
 
 # Execute in guest VM instead of container
-./fcvm exec --name web --vm -- hostname
+sudo ./fcvm exec --name web --vm -- hostname
 
 # Interactive shell in container
-./fcvm exec --name web -it -- sh
+sudo ./fcvm exec --name web -it -- sh
 
 # TTY for colors (no stdin)
-./fcvm exec --name web -t -- ls -la --color=always
+sudo ./fcvm exec --name web -t -- ls -la --color=always
 ```
 
 ### Snapshot & Clone Workflow
@@ -272,9 +272,9 @@ wait
 # real 0m0.150s  ← 50 VMs in 150ms!
 
 # Verify all running
-./fcvm ls | wc -l  # 51 (50 clones + 1 baseline)
+sudo ./fcvm ls | wc -l  # 51 (50 clones + 1 baseline)
 
-# Test a clone (use loopback IP from ./fcvm ls --json)
+# Test a clone (use loopback IP from sudo ./fcvm ls --json)
 curl -s 127.0.0.10:8090 | head -5
 ```
 
@@ -797,7 +797,7 @@ RUST_LOG="passthrough=debug,fuse_pipe=info" sudo -E cargo test ...
 
 Check running VMs:
 ```bash
-./fcvm ls
+sudo ./fcvm ls
 ```
 
 Manual cleanup:

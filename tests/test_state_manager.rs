@@ -61,16 +61,16 @@ async fn test_state_persistence() {
     // Note: VmStatus doesn't derive PartialEq, so we can't compare directly
     assert!(matches!(loaded.status, VmStatus::Running));
 
-    // Verify file permissions are world-readable (Unix only)
-    // State files use 0o644 so non-root users can list VMs
+    // Verify file permissions are restrictive (Unix only)
+    // State files use 0o600 to protect environment variables which may contain secrets
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let state_file = temp_dir.path().join("test-vm-1.json");
         let metadata = std::fs::metadata(&state_file).unwrap();
         let permissions = metadata.permissions();
-        // Check permissions are world-readable (0o644) so non-root can list VMs
-        assert_eq!(permissions.mode() & 0o777, 0o644);
+        // Check that only owner can read/write (0o600)
+        assert_eq!(permissions.mode() & 0o777, 0o600);
     }
 
     // Delete state

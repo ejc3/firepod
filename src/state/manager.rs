@@ -105,11 +105,12 @@ impl StateManager {
                 .await
                 .context("writing temp state file")?;
 
-            // Set file permissions to 0644 (world-readable) so non-root can list VMs
+            // Set file permissions to 0600 (owner read/write only) for security
+            // This prevents exposure of environment variables which may contain secrets
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let permissions = std::fs::Permissions::from_mode(0o644);
+                let permissions = std::fs::Permissions::from_mode(0o600);
                 tokio::fs::set_permissions(&temp_file, permissions)
                     .await
                     .context("setting file permissions on state file")?;
@@ -454,11 +455,11 @@ impl StateManager {
                 .await
                 .context("writing temp state file for health update")?;
 
-            // Set permissions (world-readable so non-root can list VMs)
+            // Set permissions to 0600 (owner read/write only) for security
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let permissions = std::fs::Permissions::from_mode(0o644);
+                let permissions = std::fs::Permissions::from_mode(0o600);
                 tokio::fs::set_permissions(&temp_file, permissions)
                     .await
                     .context("setting file permissions on state file")?;
