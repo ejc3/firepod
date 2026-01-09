@@ -3,19 +3,24 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::PathBuf;
 use std::thread;
 use std::time::Instant;
 
+mod common;
+
 #[test]
 fn profile_direct_latency() {
-    let socket_path = "/tmp/profile-direct.sock";
-    let _ = fs::remove_file(socket_path);
+    // Use unique path to avoid conflicts with parallel test runs
+    let socket_path = PathBuf::from(format!("/tmp/profile-direct-{}.sock", std::process::id()));
+    let socket_str = socket_path.to_str().unwrap();
+    let _ = fs::remove_file(&socket_path);
 
     // Start server
-    let listener = UnixListener::bind(socket_path).unwrap();
+    let listener = UnixListener::bind(socket_str).expect("bind Unix socket");
 
     thread::spawn(move || {
-        let (mut conn, _) = listener.accept().unwrap();
+        let (mut conn, _) = listener.accept().expect("accept connection");
         let mut len_buf = [0u8; 4];
         let mut req_buf = vec![0u8; 8192];
 
@@ -27,13 +32,14 @@ fn profile_direct_latency() {
             let len = u32::from_be_bytes(len_buf) as usize;
 
             // Read body
-            conn.read_exact(&mut req_buf[..len]).unwrap();
+            conn.read_exact(&mut req_buf[..len])
+                .expect("read request body");
 
             // Deserialize (simulated)
             let _unique: u64 = u64::from_le_bytes(req_buf[..8].try_into().unwrap());
 
             // Write response (just 4 bytes)
-            conn.write_all(&[0u8; 4]).unwrap();
+            conn.write_all(&[0u8; 4]).expect("write response");
         }
     });
 
@@ -41,7 +47,7 @@ fn profile_direct_latency() {
     thread::sleep(std::time::Duration::from_millis(50));
 
     // Client
-    let mut client = UnixStream::connect(socket_path).unwrap();
+    let mut client = UnixStream::connect(socket_str).expect("connect to server");
 
     // Prepare 4KB write request
     let data = vec![0x42u8; 4096];
@@ -77,5 +83,5 @@ fn profile_direct_latency() {
         elapsed.as_micros() as f64 / iterations as f64
     );
 
-    let _ = fs::remove_file(socket_path);
+    let _ = fs::remove_file(&socket_path);
 }
