@@ -280,6 +280,104 @@ impl FuseMount {
         }
     }
 
+    /// Create a new FUSE mount with tracing enabled for profiling.
+    ///
+    /// Returns the mount and a collector that will receive span data.
+    pub fn with_tracing(
+        data_path: &Path,
+        mount_path: &Path,
+        num_readers: usize,
+    ) -> (Self, fuse_pipe::telemetry::SpanCollector) {
+        use fuse_pipe::telemetry::SpanCollector;
+
+        init_tracing();
+
+        let socket = PathBuf::from(format!("{}.sock", mount_path.display()));
+        let _ = fs::remove_file(&socket);
+        fs::create_dir_all(data_path).expect("create data dir");
+        fs::create_dir_all(mount_path).expect("create mount dir");
+
+        let socket_path = socket.to_str().unwrap().to_string();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+
+        let server_data_path = data_path.to_path_buf();
+        let server_socket = socket_path.clone();
+        let server_thread = thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build server runtime");
+
+            rt.block_on(async {
+                let fs = PassthroughFs::new(&server_data_path);
+                let config = ServerConfig::default();
+                let server = AsyncServer::with_config(fs, config);
+                tokio::select! {
+                    result = server.serve_unix(&server_socket) => {
+                        if let Err(e) = result {
+                            debug!(target: TARGET, error = %e, "Server exited");
+                        }
+                    }
+                    _ = shutdown_rx => {
+                        debug!(target: TARGET, "Server received shutdown signal");
+                    }
+                }
+            });
+        });
+
+        let server_guard = ServerGuard {
+            thread: Some(server_thread),
+            shutdown_tx: Some(shutdown_tx),
+            socket,
+        };
+
+        for _ in 0..100 {
+            if Path::new(&socket_path).exists() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        // Create collector and mount with tracing
+        let collector = SpanCollector::new();
+        let config = MountConfig::new()
+            .readers(num_readers)
+            .trace_rate(1) // Trace every request
+            .collector(collector.clone());
+
+        let mount_handle =
+            match fuse_pipe::mount_spawn(&socket_path, mount_path.to_path_buf(), config) {
+                Ok(handle) => handle,
+                Err(e) => {
+                    drop(server_guard);
+                    panic!("mount_spawn failed: {}", e);
+                }
+            };
+
+        let mount_str = mount_path.to_str().unwrap();
+        for _ in 0..100 {
+            if let Ok(mounts) = fs::read_to_string("/proc/mounts") {
+                if mounts
+                    .lines()
+                    .any(|line| line.contains(mount_str) && line.contains("fuse"))
+                {
+                    break;
+                }
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        (
+            FuseMount {
+                server_guard: Some(server_guard),
+                data_dir: data_path.to_path_buf(),
+                mount_dir: mount_path.to_path_buf(),
+                mount_handle: Some(mount_handle),
+            },
+            collector,
+        )
+    }
+
     /// Get the FUSE mount path (where operations should be performed).
     pub fn mount_path(&self) -> &Path {
         &self.mount_dir
