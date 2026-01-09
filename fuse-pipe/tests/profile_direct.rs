@@ -8,11 +8,19 @@ use std::time::Instant;
 
 #[test]
 fn profile_direct_latency() {
-    let socket_path = "/tmp/profile-direct.sock";
-    let _ = fs::remove_file(socket_path);
+    // Use unique socket path to avoid conflicts with parallel test runs
+    let socket_path = format!(
+        "/tmp/profile-direct-{}-{}.sock",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let _ = fs::remove_file(&socket_path);
 
     // Start server
-    let listener = UnixListener::bind(socket_path).unwrap();
+    let listener = UnixListener::bind(&socket_path).unwrap();
 
     thread::spawn(move || {
         let (mut conn, _) = listener.accept().unwrap();
@@ -41,7 +49,7 @@ fn profile_direct_latency() {
     thread::sleep(std::time::Duration::from_millis(50));
 
     // Client
-    let mut client = UnixStream::connect(socket_path).unwrap();
+    let mut client = UnixStream::connect(&socket_path).unwrap();
 
     // Prepare 4KB write request
     let data = vec![0x42u8; 4096];

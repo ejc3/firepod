@@ -2,17 +2,15 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
-use std::path::PathBuf;
 use std::time::Instant;
 
 mod common;
 
 #[test]
 fn profile_write_latency() {
-    let data_dir = PathBuf::from("/tmp/profile-write-data");
-    let mount_dir = PathBuf::from("/tmp/profile-write-mount");
+    let (data_dir, mount_dir) = common::unique_paths("profile-write");
 
-    // Clean up
+    // Clean up any stale state
     common::cleanup(&data_dir, &mount_dir);
 
     fs::create_dir_all(&data_dir).unwrap();
@@ -59,4 +57,8 @@ fn profile_write_latency() {
 
     // Print telemetry breakdown
     collector.print_summary();
+
+    // Cleanup
+    drop(fuse);
+    common::cleanup(&data_dir, &mount_dir);
 }
