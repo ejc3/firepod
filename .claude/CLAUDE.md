@@ -602,6 +602,20 @@ git push origin feature-b --force
 
 ### PR Descriptions: Show, Don't Tell
 
+**CRITICAL: Review commits in THIS branch before writing PR description.**
+
+For stacked PRs (branches of branches), only describe commits in YOUR branch:
+```bash
+# First: identify your base branch
+gh pr view --json baseRefName   # Shows what branch this PR targets
+
+# Then: review only YOUR commits (not the whole stack)
+git log --oneline origin/<base-branch>..HEAD   # Commits in THIS branch only
+git log --oneline origin/main..HEAD            # Only if PR targets main directly
+```
+
+**Anti-pattern:** For a stacked PR, reviewing `main..HEAD` includes commits from parent branches. This causes incorrect claims like "X was never enabled on main" when X was enabled in THIS branch's commits.
+
 **Include test evidence.** Actual output, not "tested and works."
 
 Simple PR:
