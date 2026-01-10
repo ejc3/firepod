@@ -1198,9 +1198,16 @@ fn test_fallocate_punch_hole() {
         std::io::Error::last_os_error()
     );
 
-    // Get initial block count
+    // Close fd first to ensure writeback cache flushes metadata
+    unsafe { libc::close(fd) };
+
+    // Get initial block count AFTER closing fd (needed for writeback cache)
     let meta_before = fs::metadata(&file).expect("stat");
     let blocks_before = meta_before.blocks();
+
+    // Re-open file for punch hole operation
+    let fd = unsafe { libc::open(cpath.as_ptr(), libc::O_RDWR) };
+    assert!(fd >= 0, "reopen failed: {}", std::io::Error::last_os_error());
 
     // Punch a 512KB hole in the middle
     const FALLOC_FL_PUNCH_HOLE: i32 = 0x02;
