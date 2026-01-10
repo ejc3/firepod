@@ -1193,6 +1193,17 @@ kernel_config = "kernel/nested.conf"   # Kernel .config
 patches_dir = "kernel/patches"         # Directory with patches
 ```
 
+**Creating/Editing Kernel Patches:**
+```bash
+make kernel-patch-create PROFILE=nested NAME=0004-my-fix FILE=fs/fuse/dir.c
+make kernel-patch-edit PROFILE=nested PATCH=0002
+make kernel-patch-validate PROFILE=nested
+```
+
+NEVER hand-write patches - the hunk counts will be wrong. Always use the helper script which generates proper `git format-patch` output.
+
+When a patch change doesn't fix the issue, the bug is incomplete root cause analysis - not "needs a workaround". Adding workarounds (env vars, flags) masks bugs. Find and fix ALL causes.
+
 NEVER manually edit rootfs files. The setup script in `rootfs-config.toml` and `src/setup/rootfs.rs` control what gets installed.
 
 ### Memory Sharing (UFFD)
