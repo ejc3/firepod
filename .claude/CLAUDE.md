@@ -1218,6 +1218,29 @@ NEVER hand-write patches - the hunk counts will be wrong. Always use the helper 
 
 When a patch change doesn't fix the issue, the bug is incomplete root cause analysis - not "needs a workaround". Adding workarounds (env vars, flags) masks bugs. Find and fix ALL causes.
 
+### NEVER Assume - Always Investigate
+
+**Disabling tests is NEVER acceptable.** When a test fails:
+1. **Don't assume** the test is wrong or the limitation is fundamental
+2. **Don't assume** someone else's workaround (like #[ignore]) was correct
+3. **Investigate** the actual code path - read the library source
+4. **Find the root cause** - there's usually a missing initialization or config
+
+**Example anti-pattern (O_WRONLY + writeback cache):**
+```
+❌ WRONG: "O_WRONLY is fundamentally incompatible with writeback cache"
+   → Added #[ignore] to test
+   → Assumed the limitation was in FUSE kernel design
+
+✅ CORRECT: Read fuse-backend-rs source code
+   → Found get_writeback_open_flags() exists and promotes O_WRONLY → O_RDWR
+   → But init() wasn't being called to enable the writeback flag
+   → Fixed by calling inner.init(FsOptions::WRITEBACK_CACHE)
+   → Test passes, no workaround needed
+```
+
+**The fix is almost always in the code, not in disabling tests.**
+
 NEVER manually edit rootfs files. The setup script in `rootfs-config.toml` and `src/setup/rootfs.rs` control what gets installed.
 
 ### Memory Sharing (UFFD)
