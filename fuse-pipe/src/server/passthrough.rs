@@ -18,7 +18,7 @@ use super::handler::FilesystemHandler;
 use super::zerocopy::{SliceReader, VecWriter};
 use crate::protocol::{DirEntry, DirEntryPlus, FileAttr, VolumeRequest, VolumeResponse};
 
-use fuse_backend_rs::abi::fuse_abi::CreateIn;
+use fuse_backend_rs::abi::fuse_abi::{CreateIn, FsOptions};
 use fuse_backend_rs::api::filesystem::{Context, Entry, FileSystem, SetattrValid};
 use fuse_backend_rs::passthrough::{Config, PassthroughFs as FuseBackendPassthrough};
 
@@ -78,7 +78,7 @@ impl PassthroughFs {
         let cfg = Config {
             root_dir,
             do_import: true,
-            writeback: false,
+            writeback: true, // Server-side: handle open flags for writeback
             no_open: false,
             no_opendir: false,
             xattr: true,
@@ -90,8 +90,14 @@ impl PassthroughFs {
 
         let inner = FuseBackendPassthrough::new(cfg)?;
 
-        // Initialize the filesystem
-        inner.import()?;
+        // Initialize the filesystem with writeback cache and auto-invalidation.
+        // - WRITEBACK_CACHE: sets the internal writeback flag which enables
+        //   O_WRONLY -> O_RDWR promotion. Without this, files opened with O_WRONLY
+        //   will fail with EBADF when the kernel issues read requests for page cache.
+        // - AUTO_INVAL_DATA: kernel checks mtime on reads and invalidates cached
+        //   pages if the file was modified. Essential for FICLONE/reflink where
+        //   file content changes without going through normal write path.
+        inner.init(FsOptions::WRITEBACK_CACHE | FsOptions::AUTO_INVAL_DATA)?;
 
         Ok(Self {
             inner: Arc::new(inner),

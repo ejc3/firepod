@@ -132,11 +132,12 @@ help:
 	@echo "  setup-btrfs        Create btrfs loopback at /mnt/fcvm-btrfs"
 	@echo "  setup-fcvm         Download kernel and create rootfs"
 	@echo "  setup-pjdfstest    Build pjdfstest"
+	@echo "  setup-lint-tools   Install cargo-audit and cargo-deny"
 	@echo "  install-host-kernel  Build and install host kernel with patches (requires reboot)"
 	@echo ""
 	@echo "Other:"
 	@echo "  bench              Run fuse-pipe benchmarks"
-	@echo "  lint               Run linting (fmt, clippy, audit)"
+	@echo "  lint               Run linting (auto-installs tools if needed)"
 	@echo "  fmt                Format code"
 	@echo "  clean-test-data    Remove VM disks, snapshots, state (keeps cached assets)"
 	@echo "  check-disk         Check disk space requirements"
@@ -213,11 +214,18 @@ _test-all:
 	./scripts/no-sudo.sh $(NEXTEST) $(NEXTEST_CAPTURE) $(FILTER)
 
 _test-root:
-	RUST_LOG="$(TEST_LOG)" \
+	@RUST_LOG="$(TEST_LOG)" \
 	FCVM_DATA_DIR=$(ROOT_DATA_DIR) \
 	CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER='sudo -E' \
 	CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='sudo -E' \
-	$(NEXTEST) $(NEXTEST_CAPTURE) $(NEXTEST_IGNORED) $(NEXTEST_RETRIES) --features privileged-tests $(FILTER)
+	$(NEXTEST) $(NEXTEST_CAPTURE) $(NEXTEST_IGNORED) $(NEXTEST_RETRIES) --features privileged-tests $(FILTER) || \
+	{ echo ""; \
+	  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	  echo "TEST FAILED - Check debug logs for root cause:"; \
+	  echo "  📋 Debug logs: /tmp/fcvm-test-logs/*.log"; \
+	  echo "  💡 Re-run with STREAM=1 to see tracing output in real-time"; \
+	  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	  exit 1; }
 
 # Host targets (with setup, check-disk first to fail fast if disk is full)
 test-unit: show-notes check-disk build _test-unit
@@ -335,7 +343,15 @@ _bench:
 	$(CARGO) bench -p fuse-pipe --bench operations
 	$(CARGO) bench -p fuse-pipe --bench protocol
 
-lint:
+# Lint tools versions (keep in sync with CI)
+CARGO_AUDIT_VERSION := 0.22.0
+CARGO_DENY_VERSION := 0.18.9
+
+setup-lint-tools:
+	@which cargo-audit > /dev/null || (echo "Installing cargo-audit..." && cargo install cargo-audit@$(CARGO_AUDIT_VERSION) --locked)
+	@which cargo-deny > /dev/null || (echo "Installing cargo-deny..." && cargo install cargo-deny@$(CARGO_DENY_VERSION) --locked)
+
+lint: setup-lint-tools
 	$(CARGO) fmt -p fcvm -p fuse-pipe -p fc-agent --check
 	$(CARGO) clippy --all-targets -- -D warnings
 	$(CARGO) audit
