@@ -190,12 +190,21 @@ async fn create_podman_cache(
 
     // Lock to prevent concurrent cache creation
     let lock_path = cache_dir.with_extension("lock");
-    tokio::fs::create_dir_all(paths::podman_cache_dir())
-        .await
-        .context("creating podman-cache directory")?;
 
-    let lock_file = std::fs::File::create(&lock_path).context("creating cache lock file")?;
-    lock_file.lock_exclusive().context("acquiring cache lock")?;
+    // Use blocking operations for filesystem setup to avoid async/sync mixing issues
+    let cache_dir_clone = paths::podman_cache_dir();
+    let lock_path_clone = lock_path.clone();
+    let _lock_file = tokio::task::spawn_blocking(move || -> Result<std::fs::File> {
+        std::fs::create_dir_all(&cache_dir_clone)
+            .context("creating podman-cache directory")?;
+        let file = std::fs::File::create(&lock_path_clone)
+            .context("creating cache lock file")?;
+        file.lock_exclusive().context("acquiring cache lock")?;
+        Ok(file)
+    })
+    .await
+    .context("joining blocking task")?
+    .context("creating and locking cache lock file")?;
 
     // Double-check after lock (another process might have created it)
     if cache_dir.join("config.json").exists() {
