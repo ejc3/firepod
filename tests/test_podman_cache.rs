@@ -36,8 +36,22 @@ fn count_cache_entries() -> usize {
 /// Clean up podman cache directory for isolated testing
 async fn cleanup_cache() {
     let cache_dir = podman_cache_dir();
-    if cache_dir.exists() {
-        let _ = tokio::fs::remove_dir_all(&cache_dir).await;
+    if !cache_dir.exists() {
+        return;
+    }
+
+    // Remove individual cache entries and lock files, but keep the directory
+    // This avoids race conditions where one test is creating a cache while
+    // another test is removing the entire directory
+    if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_dir() {
+                let _ = std::fs::remove_dir_all(&path);
+            } else {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
     }
 }
 
