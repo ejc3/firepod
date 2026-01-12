@@ -333,7 +333,6 @@ iptables -t nat -A PREROUTING -d 10.0.2.100 -j DNAT --to-destination {guest_ip} 
 
             let request_str = serde_json::to_string(&request)? + "\n";
             stream.write_all(request_str.as_bytes()).await?;
-            stream.shutdown().await?;
 
             let mut reader = BufReader::new(stream);
             let mut response_line = String::new();
