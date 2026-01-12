@@ -95,7 +95,7 @@ fn build_firecracker_config(
     initrd_path: &Path,
     cmd_args: Option<Vec<String>>,
 ) -> crate::firecracker::FirecrackerConfig {
-    use crate::firecracker::{FirecrackerConfig, FcNetworkMode};
+    use crate::firecracker::{FcNetworkMode, FirecrackerConfig};
 
     let network_mode = match args.network {
         crate::cli::args::NetworkMode::Bridged => FcNetworkMode::Bridged,
@@ -376,11 +376,14 @@ async fn restore_from_podman_cache(
                 );
             }
             // Use clone approach: NAT to the original guest IP from the cached snapshot
-            let original_guest_ip = cache_config
-                .network_config
-                .guest_ip
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("cached config missing guest_ip for bridged mode"))?;
+            let original_guest_ip =
+                cache_config
+                    .network_config
+                    .guest_ip
+                    .clone()
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("cached config missing guest_ip for bridged mode")
+                    })?;
             Box::new(
                 BridgedNetwork::new(vm_id.clone(), tap_device.clone(), port_mappings.clone())
                     .with_guest_ip(original_guest_ip),
@@ -1161,10 +1164,20 @@ async fn cmd_podman_run(args: RunArgs) -> Result<()> {
 
     // Check for podman cache (unless --no-cache is set)
     // Keep fc_config and cache_key available for later cache creation on miss
-    let (fc_config, cache_key): (Option<crate::firecracker::FirecrackerConfig>, Option<String>) = if !args.no_cache {
+    let (fc_config, cache_key): (
+        Option<crate::firecracker::FirecrackerConfig>,
+        Option<String>,
+    ) = if !args.no_cache {
         // Get image identifier for cache key computation
         let image_identifier = get_image_identifier(&args.image).await?;
-        let config = build_firecracker_config(&args, &image_identifier, &kernel_path, &base_rootfs, &initrd_path, cmd_args.clone());
+        let config = build_firecracker_config(
+            &args,
+            &image_identifier,
+            &kernel_path,
+            &base_rootfs,
+            &initrd_path,
+            cmd_args.clone(),
+        );
         let key = config.cache_key();
 
         // Check if cache exists
