@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 
 /// Get the podman cache directory path
 fn podman_cache_dir() -> PathBuf {
-    PathBuf::from("/mnt/fcvm-btrfs/podman-cache")
+    fcvm::paths::podman_cache_dir()
 }
 
 /// List all cache entries (directory names that contain complete cache files)
@@ -315,6 +315,16 @@ async fn test_podman_cache_incomplete_treated_as_miss() -> Result<()> {
     println!("\ntest_podman_cache_incomplete_treated_as_miss");
     println!("=============================================");
 
+    // Use a temp directory for this test to avoid permission issues
+    let temp_dir = std::env::temp_dir().join(format!(
+        "fcvm-test-podman-cache-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir)?;
+
+    // Initialize paths with temp directory for this test
+    fcvm::paths::init_with_paths(&temp_dir, &temp_dir);
+
     // Create an incomplete cache entry with a known key
     let incomplete_key = "incomplete-test-entry";
     let cache_path = podman_cache_dir().join(incomplete_key);
@@ -333,6 +343,7 @@ async fn test_podman_cache_incomplete_treated_as_miss() -> Result<()> {
 
     // Clean up
     let _ = std::fs::remove_dir_all(&cache_path);
+    let _ = std::fs::remove_dir_all(&temp_dir);
 
     println!("Test passed");
     Ok(())
