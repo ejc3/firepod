@@ -1628,15 +1628,30 @@ async fn cmd_podman_run(args: RunArgs) -> Result<()> {
                 if let Some(ref key) = cache_key {
                     info!(cache_key = %key, digest = %cache_request.digest, "Creating cache snapshot");
 
-                    let create_result = create_podman_cache(
-                        &vm_manager,
-                        key,
-                        &vm_id,
-                        &args,
-                        &cache_request.digest,
-                        &disk_path,
-                        &network_config,
-                    ).await;
+                    // Wrap cache creation in select to allow signal interruption
+                    let create_result = tokio::select! {
+                        _ = sigterm.recv() => {
+                            info!("received SIGTERM during cache creation, aborting");
+                            container_exit_code = None;
+                            let _ = cache_request.ack_tx.send(());
+                            break;
+                        }
+                        _ = sigint.recv() => {
+                            info!("received SIGINT during cache creation, aborting");
+                            container_exit_code = None;
+                            let _ = cache_request.ack_tx.send(());
+                            break;
+                        }
+                        result = create_podman_cache(
+                            &vm_manager,
+                            key,
+                            &vm_id,
+                            &args,
+                            &cache_request.digest,
+                            &disk_path,
+                            &network_config,
+                        ) => result
+                    };
 
                     match create_result {
                         Ok(()) => {
