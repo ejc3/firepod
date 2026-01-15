@@ -62,6 +62,11 @@ pub struct SetupArgs {
     #[arg(long)]
     pub build_kernels: bool,
 
+    /// Skip building custom firecracker binary for the profile
+    /// (firecracker will be built on-demand when first needed)
+    #[arg(long, requires = "kernel_profile")]
+    pub skip_firecracker: bool,
+
     /// Install kernel as the host kernel and configure GRUB.
     /// Requires --kernel-profile flag. After setup, reboot to activate.
     #[arg(long, requires = "kernel_profile")]

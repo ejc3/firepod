@@ -103,10 +103,14 @@ pub async fn cmd_setup(args: SetupArgs) -> Result<()> {
             profile_kernel_path.display()
         );
 
-        // Build profile firecracker if needed
-        crate::setup::ensure_profile_firecracker(&profile, profile_name)
-            .await
-            .context("setting up profile firecracker")?;
+        // Build profile firecracker if needed (unless --skip-firecracker is set)
+        if !args.skip_firecracker {
+            crate::setup::ensure_profile_firecracker(&profile, profile_name)
+                .await
+                .context("setting up profile firecracker")?;
+        } else {
+            println!("  → Skipping firecracker build (will be built on-demand when needed)");
+        }
 
         println!("\nFor '{}' profile, use:", profile_name);
         println!(
