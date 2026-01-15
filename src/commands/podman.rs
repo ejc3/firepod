@@ -810,6 +810,11 @@ async fn cmd_podman_run(args: RunArgs) -> Result<()> {
         })
     };
 
+    // Setup signal handlers BEFORE spawning any threads
+    // This ensures threads inherit the correct signal mask for Tokio's signal handling
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let mut sigint = signal(SignalKind::interrupt())?;
+
     // Start I/O listener for container stdin/stdout/stderr
     // TTY mode: use binary exec_proto on port 4996 (blocking, raw terminal)
     // Non-TTY mode: use line-based protocol on port 4997 (async)
@@ -906,11 +911,8 @@ async fn cmd_podman_run(args: RunArgs) -> Result<()> {
     // Note: For rootless mode, slirp4netns wraps Firecracker and configures TAP automatically
     // For bridged mode, TAP is configured via NAT routing during network setup
 
-    // Setup signal handlers
-    let mut sigterm = signal(SignalKind::terminate())?;
-    let mut sigint = signal(SignalKind::interrupt())?;
-
     // Wait for signal or VM exit
+    // Signal handlers were registered earlier (before spawning threads)
     // For TTY mode, we get exit code from the TTY listener thread
     // For non-TTY mode, we read it from the file written by status listener
     let container_exit_code: Option<i32>;
