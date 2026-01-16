@@ -267,7 +267,7 @@ mod tests {
     fn test_cache_key_deterministic() {
         let config1 = test_config();
         let config2 = test_config();
-        assert_eq!(config1.cache_key(), config2.cache_key());
+        assert_eq!(config1.snapshot_key(), config2.snapshot_key());
     }
 
     #[test]
@@ -275,7 +275,7 @@ mod tests {
         let config1 = test_config();
         let mut config2 = test_config();
         config2.network_mode = NetworkMode::Rootless;
-        assert_ne!(config1.cache_key(), config2.cache_key());
+        assert_ne!(config1.snapshot_key(), config2.snapshot_key());
     }
 
     #[test]
@@ -283,7 +283,7 @@ mod tests {
         let config1 = test_config();
         let mut config2 = test_config();
         config2.container_cmd = Some(vec!["true".to_string()]);
-        assert_ne!(config1.cache_key(), config2.cache_key());
+        assert_ne!(config1.snapshot_key(), config2.snapshot_key());
     }
 
     #[test]
@@ -291,7 +291,7 @@ mod tests {
         let config1 = test_config();
         let mut config2 = test_config();
         config2.extra_disks = vec!["/tmp/data:/mydata:ro".to_string()];
-        assert_ne!(config1.cache_key(), config2.cache_key());
+        assert_ne!(config1.snapshot_key(), config2.snapshot_key());
     }
 
     #[test]
@@ -299,7 +299,7 @@ mod tests {
         let config1 = test_config();
         let mut config2 = test_config();
         config2.env_vars = vec!["MY_VAR=test_value".to_string()];
-        assert_ne!(config1.cache_key(), config2.cache_key());
+        assert_ne!(config1.snapshot_key(), config2.snapshot_key());
     }
 
     #[test]
@@ -307,7 +307,7 @@ mod tests {
         let config1 = test_config();
         let mut config2 = test_config();
         config2.volume_mounts = vec!["/tmp/data:/data:ro".to_string()];
-        assert_ne!(config1.cache_key(), config2.cache_key());
+        assert_ne!(config1.snapshot_key(), config2.snapshot_key());
     }
 
     #[test]
@@ -315,7 +315,7 @@ mod tests {
         let config1 = test_config();
         let mut config2 = test_config();
         config2.privileged = true;
-        assert_ne!(config1.cache_key(), config2.cache_key());
+        assert_ne!(config1.snapshot_key(), config2.snapshot_key());
     }
 
     #[test]
@@ -323,7 +323,7 @@ mod tests {
         let config1 = test_config();
         let mut config2 = test_config();
         config2.tty = true;
-        assert_ne!(config1.cache_key(), config2.cache_key());
+        assert_ne!(config1.snapshot_key(), config2.snapshot_key());
     }
 
     #[test]
@@ -331,7 +331,7 @@ mod tests {
         let config1 = test_config();
         let mut config2 = test_config();
         config2.interactive = true;
-        assert_ne!(config1.cache_key(), config2.cache_key());
+        assert_ne!(config1.snapshot_key(), config2.snapshot_key());
     }
 
     #[test]
@@ -341,6 +341,6 @@ mod tests {
         let config1 = test_config();
         let mut config2 = test_config();
         config2.data_dir = "/mnt/fcvm-btrfs/root".into();
-        assert_ne!(config1.cache_key(), config2.cache_key());
+        assert_ne!(config1.snapshot_key(), config2.snapshot_key());
     }
 }
