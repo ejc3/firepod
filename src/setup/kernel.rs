@@ -165,6 +165,36 @@ async fn ensure_default_kernel(allow_create: bool) -> Result<PathBuf> {
             .context("renaming downloaded tarball")?;
     } else {
         info!(path = %tarball_path.display(), "using cached tarball");
+
+        // Verify cached tarball is complete (not corrupted from interrupted download)
+        // Check if file size is reasonable (> 1MB for kernel tarballs)
+        if let Ok(metadata) = tokio::fs::metadata(&tarball_path).await {
+            if metadata.len() < 1_000_000 {
+                warn!(path = %tarball_path.display(), size = metadata.len(), "cached tarball suspiciously small, re-downloading");
+                let _ = tokio::fs::remove_file(&tarball_path).await;
+
+                println!("  → Cached tarball incomplete, re-downloading...");
+                let _ = tokio::fs::remove_file(&tarball_temp).await;
+
+                let output = Command::new("curl")
+                    .args(["-fSL", &kernel_config.url, "-o"])
+                    .arg(&tarball_temp)
+                    .output()
+                    .await
+                    .context("running curl")?;
+
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let _ = tokio::fs::remove_file(&tarball_temp).await;
+                    let _ = flock.unlock();
+                    bail!("Failed to download kernel: {}", stderr);
+                }
+
+                tokio::fs::rename(&tarball_temp, &tarball_path)
+                    .await
+                    .context("renaming downloaded tarball")?;
+            }
+        }
     }
 
     // Extract kernel from tarball (atomic: extract to temp, then move)
