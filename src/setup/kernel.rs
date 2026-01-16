@@ -173,8 +173,47 @@ async fn ensure_default_kernel(allow_create: bool) -> Result<PathBuf> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let _ = flock.unlock();
-        bail!("Failed to extract kernel: {}", stderr);
+
+        // If extraction failed and we used a cached tarball, it may be corrupted
+        // Delete it and retry with a fresh download
+        if tarball_path.exists() {
+            warn!(path = %tarball_path.display(), "extraction failed, cached tarball may be corrupted - removing and retrying");
+            let _ = tokio::fs::remove_file(&tarball_path).await;
+
+            println!("  → Cached tarball corrupted, re-downloading...");
+            let output = Command::new("curl")
+                .args(["-fSL", &kernel_config.url, "-o"])
+                .arg(&tarball_path)
+                .output()
+                .await
+                .context("running curl")?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let _ = flock.unlock();
+                bail!("Failed to download kernel: {}", stderr);
+            }
+
+            println!("  → Retrying extraction...");
+            let output = Command::new("tar")
+                .args(["--use-compress-program=zstd", "-xf"])
+                .arg(&tarball_path)
+                .arg("-C")
+                .arg(&cache_dir)
+                .arg(&extract_path)
+                .output()
+                .await
+                .context("extracting kernel from tarball")?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let _ = flock.unlock();
+                bail!("Failed to extract kernel after re-download: {}", stderr);
+            }
+        } else {
+            let _ = flock.unlock();
+            bail!("Failed to extract kernel: {}", stderr);
+        }
     }
 
     // Move to final location
