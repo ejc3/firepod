@@ -1259,10 +1259,21 @@ async fn cmd_podman_run(args: RunArgs) -> Result<()> {
 
     let network_config = network.setup().await.context("setting up network")?;
 
-    // Use network-provided health check URL if user didn't specify one
-    // Each network type (bridged/rootless) generates its own appropriate URL
-    if vm_state.config.health_check_url.is_none() {
-        vm_state.config.health_check_url = network_config.health_check_url.clone();
+    // For bridged networking, always use the network-provided health check URL
+    // (which uses the actual guest IP). For rootless, only use it if user didn't specify one.
+    // This ensures bridged mode works correctly when user passes --health-check http://localhost/
+    if matches!(args.network, NetworkMode::Bridged) {
+        // Bridged: always use network-provided URL (guest IP based)
+        if network_config.health_check_url.is_some() && args.health_check.is_some() {
+            vm_state.config.health_check_url = network_config.health_check_url.clone();
+        } else if vm_state.config.health_check_url.is_none() {
+            vm_state.config.health_check_url = network_config.health_check_url.clone();
+        }
+    } else {
+        // Rootless: user-provided URL takes precedence (for localhost forwarding)
+        if vm_state.config.health_check_url.is_none() {
+            vm_state.config.health_check_url = network_config.health_check_url.clone();
+        }
     }
     if let Some(port) = network_config.health_check_port {
         vm_state.config.network.health_check_port = Some(port);
