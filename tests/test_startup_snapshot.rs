@@ -51,10 +51,10 @@ async fn test_startup_snapshot_created_on_fresh_boot() -> Result<()> {
     println!("  Waiting for VM to become healthy (triggers startup snapshot)...");
 
     // Wait for healthy status
-    // Use 300 second timeout to account for rootfs creation on first run
+    // Use 120 second timeout - should be enough with pre-built rootfs
     let health_result = tokio::time::timeout(
-        Duration::from_secs(300),
-        common::poll_health_by_pid(fcvm_pid, 300),
+        Duration::from_secs(120),
+        common::poll_health_by_pid(fcvm_pid, 120),
     )
     .await;
 
@@ -116,8 +116,8 @@ async fn test_startup_snapshot_priority() -> Result<()> {
 
     // Wait for healthy (startup snapshot created)
     let health_result1 = tokio::time::timeout(
-        Duration::from_secs(300),
-        common::poll_health_by_pid(fcvm_pid1, 300),
+        Duration::from_secs(120),
+        common::poll_health_by_pid(fcvm_pid1, 120),
     )
     .await;
 
@@ -211,8 +211,8 @@ async fn test_no_startup_snapshot_without_health_check_url() -> Result<()> {
 
     // Wait for healthy status
     let health_result = tokio::time::timeout(
-        Duration::from_secs(300),
-        common::poll_health_by_pid(fcvm_pid, 300),
+        Duration::from_secs(120),
+        common::poll_health_by_pid(fcvm_pid, 120),
     )
     .await;
 
@@ -271,8 +271,8 @@ async fn test_startup_snapshot_on_restored_vm() -> Result<()> {
     .context("spawning fcvm for first boot")?;
 
     let health_result1 = tokio::time::timeout(
-        Duration::from_secs(300),
-        common::poll_health_by_pid(fcvm_pid1, 300),
+        Duration::from_secs(120),
+        common::poll_health_by_pid(fcvm_pid1, 120),
     )
     .await;
 
@@ -370,8 +370,8 @@ async fn test_startup_snapshot_bridged() -> Result<()> {
 
     // Wait for healthy status
     let health_result = tokio::time::timeout(
-        Duration::from_secs(300),
-        common::poll_health_by_pid(fcvm_pid, 300),
+        Duration::from_secs(120),
+        common::poll_health_by_pid(fcvm_pid, 120),
     )
     .await;
 
