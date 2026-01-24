@@ -421,7 +421,8 @@ except OSError as e:
     let l2_log = format!("{}/l2-fcvm.log", log_dir);
     let marker_file = format!("{}/marker.txt", log_dir);
 
-    let inner_cmd = format!(r#"
+    let inner_cmd = format!(
+        r#"
         export PATH=/opt/fcvm:/mnt/fcvm-btrfs/bin:$PATH
         export HOME=/root
 
@@ -455,7 +456,12 @@ except OSError as e:
             public.ecr.aws/nginx/nginx:alpine 2>&1 | tee -a {l1_log}
 
         echo "=== L1 END (exit code: $?) ===" >> {l1_log}
-    "#, log_dir = log_dir, l1_log = l1_log, l2_log = l2_log, marker_file = marker_file);
+    "#,
+        log_dir = log_dir,
+        l1_log = l1_log,
+        l2_log = l2_log,
+        marker_file = marker_file
+    );
 
     let output = tokio::process::Command::new(&fcvm_path)
         .args([
@@ -506,9 +512,15 @@ except OSError as e:
     // Give a moment for FUSE to sync
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-    let l1_log = tokio::fs::read_to_string(&l1_log_path).await.unwrap_or_else(|_| "L1 LOG NOT FOUND".to_string());
-    let l2_log = tokio::fs::read_to_string(&l2_log_path).await.unwrap_or_else(|_| "L2 LOG NOT FOUND".to_string());
-    let marker = tokio::fs::read_to_string(&marker_path).await.unwrap_or_default();
+    let l1_log = tokio::fs::read_to_string(&l1_log_path)
+        .await
+        .unwrap_or_else(|_| "L1 LOG NOT FOUND".to_string());
+    let l2_log = tokio::fs::read_to_string(&l2_log_path)
+        .await
+        .unwrap_or_else(|_| "L2 LOG NOT FOUND".to_string());
+    let marker = tokio::fs::read_to_string(&marker_path)
+        .await
+        .unwrap_or_default();
 
     println!("\n=== L1 LOG ===");
     for line in l1_log.lines().take(50) {
@@ -1941,22 +1953,36 @@ async fn test_nv2_kernel_writeback_cache_vsock_corruption() -> Result<()> {
     tokio::fs::create_dir_all(&test_dir).await?;
 
     let (mut _child, pid) = common::spawn_fcvm(&[
-        "podman", "run",
-        "--name", &vm_name,
-        "--network", "bridged",
-        "--kernel-profile", "nested",
-        "--map", &format!("{}:/mnt/test", test_dir),
+        "podman",
+        "run",
+        "--name",
+        &vm_name,
+        "--network",
+        "bridged",
+        "--kernel-profile",
+        "nested",
+        "--map",
+        &format!("{}:/mnt/test", test_dir),
         "--privileged",
         common::TEST_IMAGE,
-    ]).await?;
+    ])
+    .await?;
 
     common::poll_health_by_pid(pid, 180).await?;
 
     // Write 10MB - this triggers corruption with NV2 + writeback cache
     let output = tokio::process::Command::new(common::find_fcvm_binary()?)
-        .args(["exec", "--pid", &pid.to_string(), "--", "sh", "-c",
-            "dd if=/dev/zero of=/mnt/test/data bs=1M count=10 && sync && echo OK"])
-        .output().await?;
+        .args([
+            "exec",
+            "--pid",
+            &pid.to_string(),
+            "--",
+            "sh",
+            "-c",
+            "dd if=/dev/zero of=/mnt/test/data bs=1M count=10 && sync && echo OK",
+        ])
+        .output()
+        .await?;
 
     common::kill_process(pid).await;
     let _ = tokio::fs::remove_dir_all(&test_dir).await;
