@@ -323,14 +323,24 @@ async fn test_nested_run_fcvm_inside_vm() -> Result<()> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    println!("   stdout: {}", stdout.trim().replace('\n', "\n   stdout: "));
+    println!(
+        "   stdout: {}",
+        stdout.trim().replace('\n', "\n   stdout: ")
+    );
     if !stderr.is_empty() {
-        println!("   stderr: {}", stderr.trim().replace('\n', "\n   stderr: "));
+        println!(
+            "   stderr: {}",
+            stderr.trim().replace('\n', "\n   stderr: ")
+        );
     }
 
     if !stdout.contains("ALL_CHECKS_PASSED") {
         common::kill_process(outer_pid).await;
-        bail!("Required files not mounted in outer VM:\nstdout: {}\nstderr: {}", stdout, stderr);
+        bail!(
+            "Required files not mounted in outer VM:\nstdout: {}\nstderr: {}",
+            stdout,
+            stderr
+        );
     }
     println!("   ✓ All required files mounted");
 
@@ -448,7 +458,11 @@ except OSError as e:
     if !fcvm_stdout.contains("fcvm") && !fcvm_stdout.contains("Usage") {
         let stderr = String::from_utf8_lossy(&fcvm_output.stderr);
         common::kill_process(outer_pid).await;
-        bail!("fcvm binary not working inside L1:\nstdout: {}\nstderr: {}", fcvm_stdout, stderr);
+        bail!(
+            "fcvm binary not working inside L1:\nstdout: {}\nstderr: {}",
+            fcvm_stdout,
+            stderr
+        );
     }
     println!("   ✓ fcvm binary runs successfully inside L1");
 
@@ -1872,22 +1886,36 @@ async fn test_nv2_kernel_writeback_cache_vsock_corruption() -> Result<()> {
     tokio::fs::create_dir_all(&test_dir).await?;
 
     let (mut _child, pid) = common::spawn_fcvm(&[
-        "podman", "run",
-        "--name", &vm_name,
-        "--network", "bridged",
-        "--kernel-profile", "nested",
-        "--map", &format!("{}:/mnt/test", test_dir),
+        "podman",
+        "run",
+        "--name",
+        &vm_name,
+        "--network",
+        "bridged",
+        "--kernel-profile",
+        "nested",
+        "--map",
+        &format!("{}:/mnt/test", test_dir),
         "--privileged",
         common::TEST_IMAGE,
-    ]).await?;
+    ])
+    .await?;
 
     common::poll_health_by_pid(pid, 180).await?;
 
     // Write 10MB - this triggers corruption with NV2 + writeback cache
     let output = tokio::process::Command::new(common::find_fcvm_binary()?)
-        .args(["exec", "--pid", &pid.to_string(), "--", "sh", "-c",
-            "dd if=/dev/zero of=/mnt/test/data bs=1M count=10 && sync && echo OK"])
-        .output().await?;
+        .args([
+            "exec",
+            "--pid",
+            &pid.to_string(),
+            "--",
+            "sh",
+            "-c",
+            "dd if=/dev/zero of=/mnt/test/data bs=1M count=10 && sync && echo OK",
+        ])
+        .output()
+        .await?;
 
     common::kill_process(pid).await;
     let _ = tokio::fs::remove_dir_all(&test_dir).await;
