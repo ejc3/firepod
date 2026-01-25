@@ -500,6 +500,9 @@ mod tests {
         });
 
         // Drain the request so it is fully sent before we drop the server side.
+        // Wire format: [4 bytes: CRC][4 bytes: length][N bytes: body]
+        let mut crc_buf = [0u8; 4];
+        server.read_exact(&mut crc_buf).unwrap();
         let mut len_buf = [0u8; 4];
         server.read_exact(&mut len_buf).unwrap();
         let len = u32::from_be_bytes(len_buf) as usize;
@@ -549,8 +552,11 @@ mod tests {
         });
 
         // Collect the two requests from the wire
+        // Wire format: [4 bytes: CRC][4 bytes: length][N bytes: body]
         let mut requests = Vec::new();
         for _ in 0..2 {
+            let mut crc_buf = [0u8; 4];
+            server.read_exact(&mut crc_buf).unwrap();
             let mut len_buf = [0u8; 4];
             server.read_exact(&mut len_buf).unwrap();
             let len = u32::from_be_bytes(len_buf) as usize;
@@ -561,6 +567,7 @@ mod tests {
         }
 
         // Respond out of order to ensure correct routing
+        // Response wire format: [4 bytes: length][N bytes: body] (no CRC on responses)
         for (unique, reader_id) in requests.iter().rev() {
             let wire_resp = WireResponse::new(*unique, *reader_id, VolumeResponse::Ok);
             let body = bincode::serialize(&wire_resp).unwrap();
@@ -594,6 +601,9 @@ mod tests {
         });
 
         // Drain the outgoing request so the mux writer isn't blocked.
+        // Wire format: [4 bytes: CRC][4 bytes: length][N bytes: body]
+        let mut crc_buf = [0u8; 4];
+        server.read_exact(&mut crc_buf).unwrap();
         let mut len_buf = [0u8; 4];
         server.read_exact(&mut len_buf).unwrap();
         let len = u32::from_be_bytes(len_buf) as usize;
