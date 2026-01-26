@@ -54,6 +54,10 @@ fn test_parallel_mount_stress() {
                     // Drop mount (cleanup)
                     drop(fuse);
                     cleanup(&data_dir, &mount_dir);
+
+                    // Small delay to allow kernel to fully clean up FUSE resources
+                    // This prevents "mount thread failed" errors in rapid succession
+                    thread::sleep(Duration::from_millis(10));
                 }
             })
         })
@@ -114,6 +118,10 @@ fn test_rapid_mount_unmount_cycles() {
 
         drop(fuse);
         cleanup(&data_dir, &mount_dir);
+
+        // Small delay to allow kernel to fully clean up FUSE resources
+        // This prevents "mount thread failed" errors in rapid succession
+        thread::sleep(Duration::from_millis(10));
     }
 
     let elapsed = start.elapsed();

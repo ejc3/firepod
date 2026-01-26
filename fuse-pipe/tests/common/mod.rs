@@ -404,5 +404,9 @@ mod tests {
 
         drop(fuse);
         cleanup(&data_dir, &mount_dir);
+
+        // Small delay to allow kernel to fully clean up FUSE resources
+        // This prevents "mount thread failed" errors when tests run in sequence
+        thread::sleep(Duration::from_millis(10));
     }
 }
