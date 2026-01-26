@@ -9,6 +9,9 @@ use std::sync::{Arc, Mutex};
 /// Default test image - use AWS ECR to avoid Docker Hub rate limits
 pub const TEST_IMAGE: &str = "public.ecr.aws/nginx/nginx:alpine";
 
+/// Alpine test image from ECR public gallery
+pub const TEST_IMAGE_ALPINE: &str = "public.ecr.aws/docker/library/alpine:latest";
+
 /// Standard log directory for test logs
 const TEST_LOG_DIR: &str = "/tmp/fcvm-test-logs";
 
@@ -942,6 +945,41 @@ pub async fn ensure_nested_container(image_name: &str, containerfile: &str) -> a
             .context("copying fc-agent to artifacts/")?;
         std::fs::copy(&src_firecracker, "artifacts/firecracker-nested")
             .context("copying firecracker to artifacts/")?;
+
+        // Pre-pull and save nginx image for faster nested tests (avoids FUSE pull overhead)
+        let nginx_tar = std::path::Path::new("artifacts/nginx-alpine.tar");
+        if !nginx_tar.exists() {
+            println!("Pre-pulling nginx image for nested tests...");
+            let pull = tokio::process::Command::new("podman")
+                .args(["pull", "public.ecr.aws/nginx/nginx:alpine"])
+                .output()
+                .await
+                .context("pulling nginx image")?;
+            if !pull.status.success() {
+                anyhow::bail!(
+                    "Failed to pull nginx: {}",
+                    String::from_utf8_lossy(&pull.stderr)
+                );
+            }
+
+            println!("Saving nginx image to artifacts/...");
+            let save = tokio::process::Command::new("podman")
+                .args([
+                    "save",
+                    "-o",
+                    "artifacts/nginx-alpine.tar",
+                    "public.ecr.aws/nginx/nginx:alpine",
+                ])
+                .output()
+                .await
+                .context("saving nginx image")?;
+            if !save.status.success() {
+                anyhow::bail!(
+                    "Failed to save nginx: {}",
+                    String::from_utf8_lossy(&save.stderr)
+                );
+            }
+        }
     }
 
     // Always build - podman handles layer caching
