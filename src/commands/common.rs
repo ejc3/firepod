@@ -681,7 +681,8 @@ pub async fn restore_from_snapshot(
             // to find dirty pages automatically. Enabling this on restored VMs causes
             // kernel stack corruption ("stack-protector: Kernel stack is corrupted in: do_idle").
             // Diff snapshots still work via snapshot_type: "Diff" + mincore(2).
-            enable_diff_snapshots: Some(false),
+            // Use None to completely omit the parameter from the API call.
+            enable_diff_snapshots: None,
             resume_vm: Some(false), // Update devices before resume
             network_overrides: Some(vec![NetworkOverride {
                 iface_id: "eth0".to_string(),
