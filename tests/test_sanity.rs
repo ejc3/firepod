@@ -302,7 +302,10 @@ async fn test_unhealthy_container_detected() -> Result<()> {
         .status()
         .await
         .context("running podman build")?;
-    assert!(build_status.success(), "Failed to build unhealthy test image");
+    assert!(
+        build_status.success(),
+        "Failed to build unhealthy test image"
+    );
 
     let (vm_name, _, _, _) = common::unique_names("unhealthy");
 
