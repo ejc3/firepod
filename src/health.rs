@@ -161,6 +161,60 @@ pub fn spawn_health_monitor_with_state_dir(
     spawn_health_monitor_with_cancel(vm_id, pid, state_dir, None)
 }
 
+/// Check podman healthcheck status by exec'ing into VM.
+///
+/// Returns:
+/// - `true` = healthy, no healthcheck defined, or exec not available yet
+/// - `false` = unhealthy or starting (only when we can confirm healthcheck failed)
+async fn check_podman_healthcheck(pid: u32) -> bool {
+    // Use fcvm exec to run podman inspect inside the VM
+    let exe = match std::env::current_exe() {
+        Ok(e) => e,
+        Err(_) => return true, // Can't find exe, assume healthy
+    };
+
+    let output = match tokio::process::Command::new(&exe)
+        .args([
+            "exec",
+            "--pid",
+            &pid.to_string(),
+            "-c",
+            "--",
+            "podman",
+            "inspect",
+            "--format",
+            "{{.State.Health.Status}}",
+            "fcvm-container",
+        ])
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(e) => {
+            // Exec not available yet, assume healthy (don't block startup)
+            debug!(target: "health-monitor", error = %e, "podman healthcheck exec failed, assuming healthy");
+            return true;
+        }
+    };
+
+    if !output.status.success() {
+        // Container may not be running yet, assume healthy
+        debug!(target: "health-monitor", "podman inspect failed, assuming healthy");
+        return true;
+    }
+
+    let status = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    debug!(target: "health-monitor", podman_health = %status, "podman healthcheck status");
+
+    match status.as_str() {
+        "healthy" => true,
+        "" => true, // No healthcheck defined
+        "unhealthy" => false, // Confirmed unhealthy
+        "starting" => true, // Still starting, treat as OK for now
+        _ => true, // Unknown status, assume healthy
+    }
+}
+
 /// Perform a single health check iteration and persist the result.
 async fn update_health_status_once(
     state_manager: &StateManager,
@@ -303,7 +357,20 @@ async fn update_health_status_once(
                     }
                 }
             };
-            (status, None)
+
+            // If base health check passed, also check podman healthcheck (AND logic)
+            let final_status = if status == HealthStatus::Healthy {
+                if check_podman_healthcheck(pid).await {
+                    debug!(target: "health-monitor", "all health checks passed");
+                    HealthStatus::Healthy
+                } else {
+                    debug!(target: "health-monitor", "podman healthcheck not healthy");
+                    HealthStatus::Unhealthy
+                }
+            } else {
+                status
+            };
+            (final_status, None)
         }
     } else {
         (HealthStatus::Unknown, None)
