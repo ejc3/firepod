@@ -208,10 +208,10 @@ async fn check_podman_healthcheck(pid: u32) -> bool {
 
     match status.as_str() {
         "healthy" => true,
-        "" => true, // No healthcheck defined
+        "" => true,           // No healthcheck defined
         "unhealthy" => false, // Confirmed unhealthy
-        "starting" => true, // Still starting, treat as OK for now
-        _ => true, // Unknown status, assume healthy
+        "starting" => true,   // Still starting, treat as OK for now
+        _ => true,            // Unknown status, assume healthy
     }
 }
 
