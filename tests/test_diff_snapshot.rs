@@ -18,9 +18,6 @@ use std::time::Duration;
 /// Image for diff snapshot tests - nginx provides /health endpoint
 const TEST_IMAGE: &str = common::TEST_IMAGE;
 
-/// Health check URL for nginx
-const HEALTH_CHECK_URL: &str = "http://localhost/";
-
 /// Get the snapshot directory path
 fn snapshot_dir() -> std::path::PathBuf {
     let data_dir = std::env::var("FCVM_DATA_DIR")
@@ -62,8 +59,8 @@ async fn test_diff_snapshot_prestart_full_startup_diff() -> Result<()> {
     // Use unique env var to get unique snapshot key
     let test_id = format!("TEST_ID=diff-test-{}", std::process::id());
 
-    // Start VM with health check URL to trigger both pre-start and startup snapshots
-    println!("Starting VM with --health-check (triggers both pre-start and startup)...");
+    // Start VM to trigger both pre-start and startup snapshots
+    println!("Starting VM (triggers both pre-start and startup)...");
     let (mut child, fcvm_pid) = common::spawn_fcvm_with_logs(
         &[
             "podman",
@@ -72,8 +69,6 @@ async fn test_diff_snapshot_prestart_full_startup_diff() -> Result<()> {
             &vm_name,
             "--env",
             &test_id,
-            "--health-check",
-            HEALTH_CHECK_URL,
             TEST_IMAGE,
         ],
         &vm_name,
@@ -182,8 +177,6 @@ async fn test_diff_snapshot_cache_hit_fast() -> Result<()> {
         &vm_name1,
         "--env",
         &test_id,
-        "--health-check",
-        HEALTH_CHECK_URL,
         TEST_IMAGE,
     ])
     .await
@@ -221,8 +214,6 @@ async fn test_diff_snapshot_cache_hit_fast() -> Result<()> {
         &vm_name2,
         "--env",
         &test_id,
-        "--health-check",
-        HEALTH_CHECK_URL,
         TEST_IMAGE,
     ])
     .await
@@ -430,7 +421,7 @@ async fn test_diff_snapshot_memory_size_valid() -> Result<()> {
     // First boot: creates pre-start (Full) and startup (Diff, merged)
     let (vm_name, _, _, _) = common::unique_names("diff-size");
 
-    println!("Starting VM with health check...");
+    println!("Starting VM...");
     let (mut child, fcvm_pid) = common::spawn_fcvm(&[
         "podman",
         "run",
@@ -438,8 +429,6 @@ async fn test_diff_snapshot_memory_size_valid() -> Result<()> {
         &vm_name,
         "--env",
         &test_id,
-        "--health-check",
-        HEALTH_CHECK_URL,
         TEST_IMAGE,
     ])
     .await
