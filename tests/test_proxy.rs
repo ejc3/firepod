@@ -56,6 +56,10 @@ async fn test_vm_uses_ipv6_proxy() -> Result<()> {
 
     println!("Starting VM with proxy env: {}", proxy_url);
 
+    // Set NO_PROXY to exclude the Docker registry from proxy usage
+    // This allows the test to verify proxy env vars are passed while still allowing image pulls to succeed
+    let no_proxy = "registry-1.docker.io,docker.io";
+
     // Start VM with proxy env vars (no image pull through proxy - use alpine which should be cached)
     let (mut child, pid) = common::spawn_fcvm_with_env(
         &[
@@ -70,7 +74,12 @@ async fn test_vm_uses_ipv6_proxy() -> Result<()> {
             "sleep",
             "infinity",
         ],
-        &[("http_proxy", &proxy_url), ("https_proxy", &proxy_url)],
+        &[
+            ("http_proxy", &proxy_url),
+            ("https_proxy", &proxy_url),
+            ("no_proxy", no_proxy),
+            ("NO_PROXY", no_proxy),
+        ],
     )
     .await
     .context("spawn fcvm with proxy env")?;
