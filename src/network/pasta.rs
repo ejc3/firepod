@@ -23,7 +23,6 @@
 //! - IPv4 NAT works the same way
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::process::{Child, Command};
 use tracing::{info, warn};
