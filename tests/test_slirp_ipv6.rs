@@ -229,7 +229,7 @@ async fn test_ipv6_egress_to_host() -> Result<()> {
         .find(|l| l.contains("inet6") && l.contains("scope global"))
         .and_then(|l| {
             l.split_whitespace()
-                .nth(1)  // Get the address part
+                .nth(1) // Get the address part
                 .map(|addr| addr.split('/').next().unwrap_or(addr))
         })
         .map(|s| s.to_string());
@@ -318,11 +318,7 @@ with IPv6Server(('::', {}), handler) as httpd:
     let url = format!("http://[{}]:{}/", host_ipv6, server_port);
     println!("Attempting to connect to: {}", url);
 
-    let result = common::exec_in_vm(
-        pid,
-        &["wget", "-q", "-O", "-", "--timeout=5", &url],
-    )
-    .await;
+    let result = common::exec_in_vm(pid, &["wget", "-q", "-O", "-", "--timeout=5", &url]).await;
 
     // Clean up
     server.kill().await.ok();
@@ -335,15 +331,97 @@ with IPv6Server(('::', {}), handler) as httpd:
             Ok(())
         }
         Err(e) => {
-            println!("✗ IPv6 egress failed: {}", e);
+            // IPv6 egress doesn't work with slirp4netns - need pasta networking
+            // This test documents the current limitation
+            println!("✗ IPv6 egress to host failed: {}", e);
             println!();
-            println!("This is expected with current slirp4netns - it only provides IPv4 NAT.");
-            println!("IPv6 egress requires either:");
-            println!("  1. IPv6 NAT (not supported by slirp4netns)");
-            println!("  2. Bridged networking with IPv6 on the bridge");
-            println!("  3. A different networking solution like pasta");
+            println!("IPv6 egress to host requires pasta networking (not yet integrated).");
+            println!("slirp4netns only provides IPv4 NAT.");
 
             // Don't fail the test - just document the limitation
+            Ok(())
+        }
+    }
+}
+
+/// Test IPv6 egress to internet using direct IPv6 address.
+///
+/// This test verifies whether the VM can reach IPv6 endpoints on the internet.
+/// With slirp4netns, this will fail (only IPv4 NAT).
+/// With pasta networking, this should work.
+#[tokio::test]
+async fn test_ipv6_egress_internet() -> Result<()> {
+    let (vm_name, _, _, _) = common::unique_names("ipv6inet");
+
+    // Start a VM
+    let (mut child, pid) = common::spawn_fcvm(&[
+        "podman",
+        "run",
+        "--name",
+        &vm_name,
+        "--network",
+        "rootless",
+        "--no-snapshot",
+        "alpine:latest",
+        "sleep",
+        "infinity",
+    ])
+    .await
+    .context("spawn fcvm")?;
+
+    // Wait for VM to be healthy
+    if let Err(e) = common::poll_health_by_pid(pid, 120).await {
+        common::kill_process(pid).await;
+        let _ = child.wait().await;
+        anyhow::bail!("VM never became healthy: {}", e);
+    }
+
+    println!("VM is healthy, testing IPv6 internet egress...");
+
+    // Try to reach an IPv6-only endpoint (Cloudflare DNS, known IPv6)
+    // Using direct IP to avoid DNS resolution issues
+    // ipv6.icanhazip.com = 2606:4700::6810:b9f1
+    let result = common::exec_in_vm(
+        pid,
+        &[
+            "wget",
+            "-q",
+            "-O",
+            "-",
+            "--timeout=5",
+            "--header=Host: ipv6.icanhazip.com",
+            "http://[2606:4700::6810:b9f1]/",
+        ],
+    )
+    .await;
+
+    // Clean up
+    common::kill_process(pid).await;
+    let _ = child.wait().await;
+
+    match result {
+        Ok(output) => {
+            let ip = output.trim();
+            println!("✓ IPv6 internet egress works!");
+            println!("  External IPv6 seen: {}", ip);
+
+            // Verify we got an IPv6 address back
+            assert!(
+                ip.contains(':'),
+                "Expected IPv6 address in response, got: {}",
+                ip
+            );
+
+            Ok(())
+        }
+        Err(e) => {
+            // This is expected with slirp4netns
+            println!("✗ IPv6 internet egress failed: {}", e);
+            println!();
+            println!("This is expected with slirp4netns (only provides IPv4 NAT).");
+            println!("IPv6 egress requires pasta networking.");
+
+            // Don't fail - document limitation
             Ok(())
         }
     }
