@@ -825,6 +825,16 @@ pub async fn cmd_snapshot_run(args: SnapshotRunArgs) -> Result<()> {
 
             tokio::time::sleep(VSOCK_POLL_INTERVAL).await;
         }
+
+        // After snapshot restore, fc-agent needs time to complete network initialization:
+        // - Detect restore-epoch change (polls every 100ms)
+        // - Execute handle_clone_restore(): flush ARP, send NDP NA for IPv6
+        // Without this delay, container exec fails with "no such container" because
+        // the container's network isn't fully ready (IPv6 NDP not announced to slirp4netns).
+        // 300ms allows: 100ms max for restore-epoch detection + 200ms for network setup.
+        info!("waiting 300ms for fc-agent to complete network restore after snapshot clone");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
         let exit_code = crate::commands::exec::run_exec_in_vm(
             &vsock_socket,
             &cmd_args,
