@@ -1683,3 +1683,15 @@ impl LocalProxyServer {
         let _ = self.task.await;
     }
 }
+
+/// Check if we're running in a nested container environment.
+///
+/// Returns true if fcvm itself is running inside a Docker/Podman container
+/// (detected by checking if FCVM_DATA_DIR contains "container").
+/// This is used to skip tests that don't work in nested virtualization scenarios.
+pub fn is_running_in_container() -> bool {
+    std::env::var("FCVM_DATA_DIR")
+        .ok()
+        .map(|path| path.contains("/container"))
+        .unwrap_or(false)
+}
