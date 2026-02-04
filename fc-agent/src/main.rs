@@ -99,6 +99,105 @@ struct LatestMetadata {
     volumes: Vec<VolumeMount>,
 }
 
+/// Wait for cgroup controllers to be delegated to our cgroup.
+///
+/// With `Delegate=yes` on fc-agent.service, systemd delegates cgroup controllers to our cgroup.
+/// However, there can be a race condition where we start running before delegation is complete.
+/// This is especially important for `--cgroups=split` which uses cgroupfs directly.
+///
+/// This function waits for the "pids" controller to be available, which is required by podman/crun.
+async fn wait_for_cgroup_controllers() {
+    use tokio::fs;
+    use tokio::time::{sleep, Duration};
+
+    const MAX_WAIT_MS: u64 = 5000;
+    const POLL_INTERVAL_MS: u64 = 50;
+    const REQUIRED_CONTROLLER: &str = "pids";
+
+    // Get our cgroup path from /proc/self/cgroup
+    let cgroup_path = match fs::read_to_string("/proc/self/cgroup").await {
+        Ok(content) => {
+            // Format: "0::/path/to/cgroup"
+            // We want the path after "::"
+            if let Some(line) = content.lines().next() {
+                if let Some(path) = line.strip_prefix("0::") {
+                    format!("/sys/fs/cgroup{}/cgroup.controllers", path)
+                } else {
+                    eprintln!("[fc-agent] unexpected cgroup format: {}", line);
+                    return;
+                }
+            } else {
+                eprintln!("[fc-agent] /proc/self/cgroup is empty");
+                return;
+            }
+        }
+        Err(e) => {
+            eprintln!("[fc-agent] failed to read /proc/self/cgroup: {}", e);
+            return;
+        }
+    };
+
+    eprintln!(
+        "[fc-agent] waiting for cgroup controllers at {}",
+        cgroup_path
+    );
+
+    let start = std::time::Instant::now();
+    let mut attempts = 0;
+
+    loop {
+        attempts += 1;
+
+        match fs::read_to_string(&cgroup_path).await {
+            Ok(controllers) => {
+                let available: Vec<&str> = controllers.split_whitespace().collect();
+                if available.contains(&REQUIRED_CONTROLLER) {
+                    let elapsed = start.elapsed();
+                    if attempts > 1 {
+                        eprintln!(
+                            "[fc-agent] cgroup controllers available after {}ms ({} attempts): {}",
+                            elapsed.as_millis(),
+                            attempts,
+                            controllers.trim()
+                        );
+                    } else {
+                        eprintln!(
+                            "[fc-agent] cgroup controllers available: {}",
+                            controllers.trim()
+                        );
+                    }
+                    return;
+                }
+
+                // Not available yet
+                if start.elapsed().as_millis() as u64 >= MAX_WAIT_MS {
+                    eprintln!(
+                        "[fc-agent] WARNING: '{}' controller not available after {}ms (available: {})",
+                        REQUIRED_CONTROLLER,
+                        MAX_WAIT_MS,
+                        controllers.trim()
+                    );
+                    return;
+                }
+
+                sleep(Duration::from_millis(POLL_INTERVAL_MS)).await;
+            }
+            Err(e) => {
+                // File might not exist yet
+                if start.elapsed().as_millis() as u64 >= MAX_WAIT_MS {
+                    eprintln!(
+                        "[fc-agent] WARNING: failed to read cgroup controllers after {}ms: {}",
+                        MAX_WAIT_MS, e
+                    );
+                    return;
+                }
+
+                sleep(Duration::from_millis(POLL_INTERVAL_MS)).await;
+            }
+        }
+    }
+}
+
 async fn fetch_plan() -> Result<Plan> {
     // MMDS V2 requires getting a session token first
     let client = reqwest::Client::new();
@@ -2239,6 +2338,12 @@ async fn run_agent() -> Result<()> {
     }
 
     eprintln!("[fc-agent] launching container: {}", image_ref);
+
+    // Wait for cgroup controllers to be available.
+    // With Delegate=yes on fc-agent.service, systemd should delegate controllers to our cgroup.
+    // But there can be a race condition where we start before delegation is complete.
+    // This is especially important for --cgroups=split which uses cgroupfs directly.
+    wait_for_cgroup_controllers().await;
 
     // Build Podman args (used for both TTY and non-TTY modes)
     //
