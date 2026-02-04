@@ -167,6 +167,11 @@ async fn test_proxy_to_addr(host_bind: &str, vm_gateway: &str, addr_type: &str) 
 /// Test IPv6 proxy: VM uses fd00::2 to reach proxy on ::1
 #[tokio::test]
 async fn test_proxy_ipv6() -> Result<()> {
+    // Skip when running inside a container - nested slirp4netns doesn't forward IPv6 loopback
+    if common::is_in_container() {
+        println!("SKIP: IPv6 loopback forwarding (fd00::2 → ::1) not supported in nested containers");
+        return Ok(());
+    }
     test_proxy_to_addr("::1", "fd00::2", "ipv6").await
 }
 
@@ -276,6 +281,11 @@ async fn test_egress_ipv4_global() -> Result<()> {
 /// Server binds to ::1, VM connects via fd00::2 (slirp IPv6 gateway)
 #[tokio::test]
 async fn test_egress_ipv6_local() -> Result<()> {
+    // Skip when running inside a container - nested slirp4netns doesn't forward IPv6 loopback
+    if common::is_in_container() {
+        println!("SKIP: IPv6 loopback forwarding (fd00::2 → ::1) not supported in nested containers");
+        return Ok(());
+    }
     // slirp4netns translates fd00::2 → host's ::1
     test_egress_to_addr("::1", "fd00::2", "ipv6-local").await
 }
@@ -284,6 +294,11 @@ async fn test_egress_ipv6_local() -> Result<()> {
 /// Server binds to host's global IPv6, VM connects directly via slirp IPv6 NAT
 #[tokio::test]
 async fn test_egress_ipv6_global() -> Result<()> {
+    // Skip when running inside a container - IPv6 global addressing doesn't work in nested containers
+    if common::is_in_container() {
+        println!("SKIP: IPv6 global addressing not supported in nested containers");
+        return Ok(());
+    }
     let host_ipv6 = match get_host_ipv6().await {
         Some(ip) => ip,
         None => {
