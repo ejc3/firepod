@@ -113,6 +113,12 @@ async fn test_dns_resolution_in_vm() -> Result<()> {
 /// This proves the NDP Neighbor Advertisement mechanism works correctly.
 #[tokio::test]
 async fn test_ipv6_connectivity_in_vm() -> Result<()> {
+    // Check if IPv6 is available on the host before starting VM
+    if tokio::net::TcpListener::bind("[::1]:0").await.is_err() {
+        println!("SKIP: IPv6 not available on this system");
+        return Ok(());
+    }
+
     let (vm_name, _, _, _) = common::unique_names("ipv6test");
 
     // Use alpine with sleep - no HTTP server needed since health uses container-ready file

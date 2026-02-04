@@ -9,6 +9,11 @@ mod common;
 
 use anyhow::{Context, Result};
 
+/// Check if IPv6 is available on this system by trying to bind to ::1
+async fn is_ipv6_available() -> bool {
+    tokio::net::TcpListener::bind("[::1]:0").await.is_ok()
+}
+
 /// Get the host's global IPv6 address (if available)
 async fn get_host_ipv6() -> Option<String> {
     let output = tokio::process::Command::new("ip")
@@ -167,6 +172,11 @@ async fn test_proxy_to_addr(host_bind: &str, vm_gateway: &str, addr_type: &str) 
 /// Test IPv6 proxy: VM uses fd00::2 to reach proxy on ::1
 #[tokio::test]
 async fn test_proxy_ipv6() -> Result<()> {
+    // Check if IPv6 loopback is available
+    if !is_ipv6_available().await {
+        println!("SKIP: IPv6 not available on this system");
+        return Ok(());
+    }
     test_proxy_to_addr("::1", "fd00::2", "ipv6").await
 }
 
@@ -276,6 +286,11 @@ async fn test_egress_ipv4_global() -> Result<()> {
 /// Server binds to ::1, VM connects via fd00::2 (slirp IPv6 gateway)
 #[tokio::test]
 async fn test_egress_ipv6_local() -> Result<()> {
+    // Check if IPv6 loopback is available
+    if !is_ipv6_available().await {
+        println!("SKIP: IPv6 not available on this system");
+        return Ok(());
+    }
     // slirp4netns translates fd00::2 → host's ::1
     test_egress_to_addr("::1", "fd00::2", "ipv6-local").await
 }
