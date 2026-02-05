@@ -330,6 +330,12 @@ fn mount_internal<P: AsRef<Path>>(
     let mut session = None;
     let mut last_error = None;
     for attempt in 0..=SESSION_NEW_MAX_RETRIES {
+        // On retry attempts, force unmount any stale mount at this path
+        if attempt > 0 {
+            debug!(target: "fuse-pipe::client", attempt, "forcing unmount before retry");
+            force_unmount(mount_point.as_ref());
+        }
+
         // Note: We need to clone fs for each attempt since Session::new consumes it on failure
         let fs_attempt = FuseClient::with_destroyed_flag(Arc::clone(&mux), Arc::clone(&destroyed));
         match fuser::Session::new(fs_attempt, mount_point.as_ref(), &config) {
