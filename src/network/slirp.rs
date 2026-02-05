@@ -313,11 +313,18 @@ ip6tables -t nat -A PREROUTING -d fd00::100 -j DNAT --to-destination {guest_ipv6
         // Detect host's global IPv6 address for outbound traffic
         let host_ipv6 = Self::detect_host_ipv6();
 
+        // Get host DNS servers for slirp4netns to use
+        // This is critical when the host uses systemd-resolved (127.0.0.53) which
+        // slirp4netns cannot reach from inside the network namespace
+        let dns_servers = super::get_host_dns_servers()
+            .context("getting host DNS servers for slirp4netns")?;
+
         info!(
             namespace_pid = namespace_pid,
             slirp_tap = %self.slirp_device,
             api_socket = %api_socket.display(),
             host_ipv6 = ?host_ipv6,
+            dns_servers = ?dns_servers,
             "starting slirp4netns with IPv6 (creating TAP, no IP assignment)"
         );
 
@@ -331,6 +338,12 @@ ip6tables -t nat -A PREROUTING -d fd00::100 -j DNAT --to-destination {guest_ipv6
             .arg("--api-socket")
             .arg(&api_socket)
             .arg("--enable-ipv6");
+
+        // Pass DNS servers to slirp4netns so it can forward DNS queries
+        // Without this, DNS fails when host uses systemd-resolved (127.0.0.53)
+        for dns in &dns_servers {
+            cmd.arg("--dns").arg(dns);
+        }
 
         // If host has global IPv6, tell slirp4netns to use it for outbound connections
         if let Some(ref ipv6) = host_ipv6 {
