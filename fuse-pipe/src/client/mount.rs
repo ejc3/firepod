@@ -292,7 +292,9 @@ fn mount_internal<P: AsRef<Path>>(
     config.acl = acl;
     // Use fuser's built-in multi-threading with clone_fd for true parallel request processing
     config.n_threads = Some(num_readers);
-    config.clone_fd = true; // Opt-in to FUSE_DEV_IOC_CLONE for parallel requests
+    // clone_fd (FUSE_DEV_IOC_CLONE) is disabled by default due to hangs in TTY/interactive sessions
+    // Can be enabled via FCVM_ENABLE_CLONE_FD=1 for testing (requires Linux 5.15+)
+    config.clone_fd = std::env::var("FCVM_ENABLE_CLONE_FD").unwrap_or_default() == "1";
 
     // Shared flag set by FuseClient::destroy() when kernel sends FUSE_DESTROY.
     let destroyed = Arc::new(AtomicBool::new(false));
@@ -451,7 +453,9 @@ pub fn mount_vsock_with_options<P: AsRef<Path>>(
     config.acl = acl;
     // Use fuser's built-in multi-threading with clone_fd for true parallel request processing
     config.n_threads = Some(num_readers);
-    config.clone_fd = true; // Opt-in to FUSE_DEV_IOC_CLONE for parallel requests
+    // clone_fd (FUSE_DEV_IOC_CLONE) is disabled by default due to hangs in TTY/interactive sessions
+    // Can be enabled via FCVM_ENABLE_CLONE_FD=1 for testing (requires Linux 5.15+)
+    config.clone_fd = std::env::var("FCVM_ENABLE_CLONE_FD").unwrap_or_default() == "1";
 
     // Shared flag set by FuseClient::destroy() when kernel sends FUSE_DESTROY.
     let destroyed = Arc::new(AtomicBool::new(false));
