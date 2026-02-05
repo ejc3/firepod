@@ -304,7 +304,9 @@ fn writer_loop(
         // Write CRC header first, then the message
         // Wire format: [4 bytes: CRC][4 bytes: length][N bytes: body]
         let crc_bytes = send_crc.to_be_bytes();
-        let write_result = socket.write_all(&crc_bytes).and_then(|_| socket.write_all(&req.data));
+        let write_result = socket
+            .write_all(&crc_bytes)
+            .and_then(|_| socket.write_all(&req.data));
         let flush_result = if write_result.is_ok() {
             socket.flush()
         } else {
@@ -390,9 +392,13 @@ fn reader_loop(mut socket: UnixStream, pending: Arc<DashMap<u64, Sender<Response
                     unique = wire.unique,
                     ?expected,
                     actual,
-                    "CHECKSUM MISMATCH - response corrupted in transit"
+                    "CHECKSUM MISMATCH - response corrupted, returning EIO"
                 );
-                // Continue processing but log the corruption for diagnosis
+                // Return EIO to the caller instead of delivering corrupted data
+                if let Some((_, tx)) = pending.remove(&wire.unique) {
+                    let _ = tx.send((VolumeResponse::error(libc::EIO), None));
+                }
+                continue;
             }
 
             // Log every response for detailed debugging (separate target for filtering)

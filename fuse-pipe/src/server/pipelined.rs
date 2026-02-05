@@ -356,9 +356,10 @@ async fn request_reader<H: FilesystemHandler + 'static>(
                 last_unique,
                 expected_crc = format!("{:08x}", expected_crc),
                 recv_crc = format!("{:08x}", recv_crc),
-                "WIRE CRC MISMATCH - data corrupted in transit!"
+                "WIRE CRC MISMATCH - data corrupted in transit, dropping request"
             );
-            // Continue to deserialization to get more diagnostic info
+            // Data is corrupted - skip this request entirely
+            continue;
         }
 
         // Deserialize
@@ -428,9 +429,17 @@ async fn request_reader<H: FilesystemHandler + 'static>(
                 ?expected,
                 actual,
                 total_bytes_read,
-                "CHECKSUM MISMATCH - data corrupted in transit"
+                "CHECKSUM MISMATCH - data corrupted in transit, returning EIO"
             );
-            // Continue processing but log the corruption for diagnosis
+            // Send EIO response back to client instead of silently dropping
+            let pending = PendingResponse {
+                unique: wire_req.unique,
+                reader_id: wire_req.reader_id,
+                response: VolumeResponse::error(libc::EIO),
+                span: None,
+            };
+            let _ = tx.send(pending).await;
+            continue;
         }
 
         // Log every message for detailed debugging (separate target for filtering)
