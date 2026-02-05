@@ -97,6 +97,16 @@ async fn test_dns_resolution_in_vm() -> Result<()> {
 
     println!("VM is healthy, testing DNS resolution...");
 
+    // Install dig (from bind-tools package) in Alpine
+    println!("Installing bind-tools (dig) in VM...");
+    let install_result = common::exec_in_vm(pid, &["apk", "add", "bind-tools"]).await;
+    if let Err(e) = install_result {
+        dns_server.stop().await;
+        common::kill_process(pid).await;
+        let _ = child.wait().await;
+        anyhow::bail!("Failed to install bind-tools: {}", e);
+    }
+
     // Test DNS resolution inside the VM using dig (supports custom ports)
     // dig @server -p port hostname +short
     let dns_result = common::exec_in_vm(

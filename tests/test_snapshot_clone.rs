@@ -437,6 +437,17 @@ async fn clone_while_baseline_running_impl(network_mode: &str) -> Result<()> {
     common::poll_health_by_pid(baseline_pid, 120).await?;
     println!("  ✓ Baseline VM healthy (PID: {})", baseline_pid);
 
+    // Install dig in baseline VM so it's available in clones
+    println!("  Installing bind-tools (dig) in baseline VM...");
+    let install_result = common::exec_in_vm(baseline_pid, &["apk", "add", "bind-tools"]).await;
+    if let Err(e) = install_result {
+        common::kill_process(baseline_pid).await;
+        dns_server.stop().await;
+        test_server.stop().await;
+        anyhow::bail!("Failed to install bind-tools in baseline: {}", e);
+    }
+    println!("  ✓ bind-tools installed");
+
     // Step 2: Create snapshot (baseline VM stays running after this)
     println!("\nStep 2: Creating snapshot (baseline will continue running)...");
     let output = tokio::process::Command::new(&fcvm_path)
@@ -672,6 +683,17 @@ async fn clone_internet_test_impl(network: &str) -> Result<()> {
     println!("  Waiting for baseline VM to become healthy...");
     common::poll_health_by_pid(baseline_pid, 120).await?;
     println!("  ✓ Baseline VM healthy (PID: {})", baseline_pid);
+
+    // Install dig in baseline VM so it's available in clones
+    println!("  Installing bind-tools (dig) in baseline VM...");
+    let install_result = common::exec_in_vm(baseline_pid, &["apk", "add", "bind-tools"]).await;
+    if let Err(e) = install_result {
+        common::kill_process(baseline_pid).await;
+        dns_server.stop().await;
+        test_server.stop().await;
+        anyhow::bail!("Failed to install bind-tools in baseline: {}", e);
+    }
+    println!("  ✓ bind-tools installed");
 
     // Step 2: Create snapshot
     println!("\nStep 2: Creating snapshot...");
@@ -938,6 +960,17 @@ async fn test_clone_port_forward_bridged() -> Result<()> {
     println!("  Waiting for baseline VM to become healthy...");
     common::poll_health_by_pid(baseline_pid, 120).await?;
     println!("  ✓ Baseline VM healthy (PID: {})", baseline_pid);
+
+    // Install dig in baseline VM so it's available in clones
+    println!("  Installing bind-tools (dig) in baseline VM...");
+    let install_result = common::exec_in_vm(baseline_pid, &["apk", "add", "bind-tools"]).await;
+    if let Err(e) = install_result {
+        common::kill_process(baseline_pid).await;
+        dns_server.stop().await;
+        test_server.stop().await;
+        anyhow::bail!("Failed to install bind-tools in baseline: {}", e);
+    }
+    println!("  ✓ bind-tools installed");
 
     // Step 2: Create snapshot
     println!("\nStep 2: Creating snapshot...");
@@ -1332,6 +1365,17 @@ async fn snapshot_run_direct_test_impl(network: &str) -> Result<()> {
     common::poll_health_by_pid(baseline_pid, 120).await?;
     println!("  ✓ Baseline VM healthy (PID: {})", baseline_pid);
 
+    // Install dig in baseline VM so it's available in clones
+    println!("  Installing bind-tools (dig) in baseline VM...");
+    let install_result = common::exec_in_vm(baseline_pid, &["apk", "add", "bind-tools"]).await;
+    if let Err(e) = install_result {
+        common::kill_process(baseline_pid).await;
+        dns_server.stop().await;
+        test_server.stop().await;
+        anyhow::bail!("Failed to install bind-tools in baseline: {}", e);
+    }
+    println!("  ✓ bind-tools installed");
+
     // Step 2: Create snapshot
     println!("\nStep 2: Creating snapshot...");
     let output = tokio::process::Command::new(&fcvm_path)
@@ -1471,6 +1515,17 @@ async fn snapshot_run_exec_test_impl(network: &str) -> Result<()> {
     println!("  Waiting for baseline VM to become healthy...");
     common::poll_health_by_pid(baseline_pid, 120).await?;
     println!("  ✓ Baseline VM healthy (PID: {})", baseline_pid);
+
+    // Install dig in baseline VM so it's available in clones
+    println!("  Installing bind-tools (dig) in baseline VM...");
+    let install_result = common::exec_in_vm(baseline_pid, &["apk", "add", "bind-tools"]).await;
+    if let Err(e) = install_result {
+        common::kill_process(baseline_pid).await;
+        dns_server.stop().await;
+        test_server.stop().await;
+        anyhow::bail!("Failed to install bind-tools in baseline: {}", e);
+    }
+    println!("  ✓ bind-tools installed");
 
     // Step 2: Create snapshot
     println!("\nStep 2: Creating snapshot...");
