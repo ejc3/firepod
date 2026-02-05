@@ -579,7 +579,7 @@ pub fn generate_setup_script(plan: &Plan) -> String {
     if !plan.cleanup.remove_dirs.is_empty() {
         s.push_str("# Cleanup unnecessary files\n");
         for pattern in &plan.cleanup.remove_dirs {
-            s.push_str(&format!("rm -rf {}\n", pattern));
+            s.push_str(&format!("rm -rf {} || true\n", pattern));
         }
         s.push('\n');
     }
