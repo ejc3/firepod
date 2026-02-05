@@ -201,7 +201,12 @@ async fn check_container_running(pid: u32) -> bool {
         None => return false, // Can't find fcvm binary
     };
 
-    let output = match tokio::process::Command::new(&exe)
+    // Use a short timeout (2s) for health checks to avoid blocking
+    // The exec command has built-in retry logic that can take 50+ seconds if the server isn't ready
+    // We want to fail fast and try again on the next health check iteration
+    let timeout = Duration::from_secs(2);
+
+    let output_future = tokio::process::Command::new(&exe)
         .args([
             "exec",
             "--pid",
@@ -214,12 +219,16 @@ async fn check_container_running(pid: u32) -> bool {
             "{{.State.Running}}",
             "fcvm-container",
         ])
-        .output()
-        .await
-    {
-        Ok(o) => o,
-        Err(e) => {
+        .output();
+
+    let output = match tokio::time::timeout(timeout, output_future).await {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => {
             debug!(target: "health-monitor", error = %e, "podman inspect exec failed");
+            return false;
+        }
+        Err(_) => {
+            debug!(target: "health-monitor", "podman inspect exec timed out after {:?}", timeout);
             return false;
         }
     };
@@ -249,7 +258,12 @@ async fn check_podman_healthcheck(pid: u32) -> Option<bool> {
         None => return Some(true), // Can't find fcvm binary, assume healthy
     };
 
-    let output = match tokio::process::Command::new(&exe)
+    // Use a short timeout (2s) for health checks to avoid blocking
+    // The exec command has built-in retry logic that can take 50+ seconds if the server isn't ready
+    // We want to fail fast and try again on the next health check iteration
+    let timeout = Duration::from_secs(2);
+
+    let output_future = tokio::process::Command::new(&exe)
         .args([
             "exec",
             "--pid",
@@ -262,13 +276,18 @@ async fn check_podman_healthcheck(pid: u32) -> Option<bool> {
             "{{.State.Health.Status}}",
             "fcvm-container",
         ])
-        .output()
-        .await
-    {
-        Ok(o) => o,
-        Err(e) => {
+        .output();
+
+    let output = match tokio::time::timeout(timeout, output_future).await {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => {
             // Exec not available yet, don't assume healthy - keep checking
             debug!(target: "health-monitor", error = %e, "podman healthcheck exec failed, will retry");
+            return Some(false);
+        }
+        Err(_) => {
+            // Timeout - exec server not ready yet, keep checking
+            debug!(target: "health-monitor", "podman healthcheck exec timed out after {:?}, will retry", timeout);
             return Some(false);
         }
     };
