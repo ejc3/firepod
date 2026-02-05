@@ -746,7 +746,7 @@ async fn clone_internet_test_impl(network: &str) -> Result<()> {
         // For bridged mode, get the veth host IP from clone's state
         // The VM can only reach the host through the veth pair
         let display_output = tokio::process::Command::new(&fcvm_path)
-            .args(["display", "--pid", &clone_pid.to_string()])
+            .args(["ls", "--json", "--pid", &clone_pid.to_string()])
             .output()
             .await
             .context("getting clone state")?;
