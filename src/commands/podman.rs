@@ -1430,7 +1430,7 @@ async fn cmd_podman_run(args: RunArgs) -> Result<()> {
     };
 
     // For non-TTY mode, use async output listener
-    let _output_handle = if !tty_mode {
+    let output_handle = if !tty_mode {
         let socket_path = output_socket_path.clone();
         let vm_id_clone = vm_id.clone();
         Some(tokio::spawn(async move {
@@ -1642,6 +1642,7 @@ async fn cmd_podman_run(args: RunArgs) -> Result<()> {
         &data_dir,
         Some(health_cancel_token),
         Some(health_monitor_handle),
+        output_handle, // abort output listener task
     )
     .await;
 
