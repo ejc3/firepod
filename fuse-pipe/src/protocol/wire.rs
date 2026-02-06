@@ -2,6 +2,16 @@
 //!
 //! # Frame Format
 //!
+//! Requests include a CRC32 header for corruption detection:
+//! ```text
+//! +----------+----------+---------+
+//! |  CRC32   |  length  | payload |
+//! | (4 bytes)| (4 bytes)| (N bytes)|
+//! +----------+----------+---------+
+//! ```
+//! - CRC32 is big-endian u32 covering [length + payload]
+//!
+//! Responses use the simpler format (checksum embedded in payload):
 //! ```text
 //! +----------+---------+
 //! |  length  | payload |
@@ -11,6 +21,8 @@
 //!
 //! - Length is a big-endian u32 specifying the payload size
 //! - Payload is bincode-serialized WireRequest or WireResponse
+//! - Both WireRequest and WireResponse have an optional `checksum` field
+//!   for field-level corruption detection (CRC32 of the request/response enum)
 
 use super::{VolumeRequest, VolumeResponse};
 use serde::{Deserialize, Serialize};
@@ -46,6 +58,10 @@ pub struct WireRequest {
     /// The client reads these from /proc/<pid>/status and forwards them.
     #[serde(default)]
     pub supplementary_groups: Vec<u32>,
+    /// CRC32 checksum of the serialized request field for corruption detection.
+    /// Used to diagnose vsock data corruption under NV2 nested virtualization.
+    #[serde(default)]
+    pub checksum: Option<u32>,
 }
 
 impl WireRequest {
@@ -57,6 +73,7 @@ impl WireRequest {
             request,
             span: None,
             supplementary_groups: Vec::new(),
+            checksum: None,
         }
     }
 
@@ -68,6 +85,7 @@ impl WireRequest {
             request,
             span: Some(span),
             supplementary_groups: Vec::new(),
+            checksum: None,
         }
     }
 
@@ -84,6 +102,7 @@ impl WireRequest {
             request,
             span: None,
             supplementary_groups,
+            checksum: None,
         }
     }
 
@@ -101,6 +120,28 @@ impl WireRequest {
             request,
             span: Some(span),
             supplementary_groups,
+            checksum: None,
+        }
+    }
+
+    /// Compute CRC32 checksum of the serialized request field.
+    pub fn compute_checksum(&self) -> u32 {
+        let data = bincode::serialize(&self.request).unwrap_or_default();
+        crc32fast::hash(&data)
+    }
+
+    /// Add checksum to this request (consumes and returns self with checksum set).
+    pub fn with_checksum(mut self) -> Self {
+        self.checksum = Some(self.compute_checksum());
+        self
+    }
+
+    /// Validate checksum if present.
+    /// Returns true if no checksum is set (backwards compatible) or if checksum matches.
+    pub fn validate_checksum(&self) -> bool {
+        match self.checksum {
+            Some(expected) => self.compute_checksum() == expected,
+            None => true, // No checksum = skip validation
         }
     }
 
@@ -249,6 +290,9 @@ pub struct WireResponse {
     /// Trace span - passed back from server with timing data
     #[serde(default)]
     pub span: Option<Span>,
+    /// CRC32 checksum of the serialized response field for corruption detection.
+    #[serde(default)]
+    pub checksum: Option<u32>,
 }
 
 impl WireResponse {
@@ -259,6 +303,7 @@ impl WireResponse {
             reader_id,
             response,
             span: None,
+            checksum: None,
         }
     }
 
@@ -269,6 +314,28 @@ impl WireResponse {
             reader_id,
             response,
             span: Some(span),
+            checksum: None,
+        }
+    }
+
+    /// Compute CRC32 checksum of the serialized response field.
+    pub fn compute_checksum(&self) -> u32 {
+        let data = bincode::serialize(&self.response).unwrap_or_default();
+        crc32fast::hash(&data)
+    }
+
+    /// Add checksum to this response (consumes and returns self with checksum set).
+    pub fn with_checksum(mut self) -> Self {
+        self.checksum = Some(self.compute_checksum());
+        self
+    }
+
+    /// Validate checksum if present.
+    /// Returns true if no checksum is set (backwards compatible) or if checksum matches.
+    pub fn validate_checksum(&self) -> bool {
+        match self.checksum {
+            Some(expected) => self.compute_checksum() == expected,
+            None => true, // No checksum = skip validation
         }
     }
 
@@ -441,5 +508,117 @@ mod tests {
         let read_data = read_message_async(&mut cursor).await.unwrap();
 
         assert_eq!(read_data, data);
+    }
+
+    #[test]
+    fn test_request_checksum_roundtrip() {
+        let req = WireRequest::new(
+            42,
+            1,
+            VolumeRequest::Lookup {
+                parent: 1,
+                name: "test.txt".to_string(),
+                uid: 1000,
+                gid: 1000,
+                pid: 0,
+            },
+        )
+        .with_checksum();
+
+        // Checksum should be set
+        assert!(req.checksum.is_some());
+
+        // Validation should pass
+        assert!(req.validate_checksum());
+
+        // Encode, decode, validate
+        let encoded = req.encode().unwrap();
+        let decoded = WireRequest::decode(&encoded[4..]).unwrap();
+        assert!(decoded.validate_checksum());
+        assert_eq!(req.checksum, decoded.checksum);
+    }
+
+    #[test]
+    fn test_request_checksum_detects_corruption() {
+        let req = WireRequest::new(
+            42,
+            1,
+            VolumeRequest::Lookup {
+                parent: 1,
+                name: "test.txt".to_string(),
+                uid: 1000,
+                gid: 1000,
+                pid: 0,
+            },
+        )
+        .with_checksum();
+
+        // Tamper with the request after checksum was computed
+        let mut tampered = req;
+        tampered.request = VolumeRequest::Lookup {
+            parent: 999,
+            name: "evil.txt".to_string(),
+            uid: 0,
+            gid: 0,
+            pid: 0,
+        };
+
+        // Validation should fail
+        assert!(!tampered.validate_checksum());
+    }
+
+    #[test]
+    fn test_response_checksum_roundtrip() {
+        let resp = WireResponse::new(42, 1, VolumeResponse::Ok).with_checksum();
+
+        assert!(resp.checksum.is_some());
+        assert!(resp.validate_checksum());
+
+        // Encode, decode, validate
+        let encoded = resp.encode().unwrap();
+        let decoded = WireResponse::decode(&encoded[4..]).unwrap();
+        assert!(decoded.validate_checksum());
+        assert_eq!(resp.checksum, decoded.checksum);
+    }
+
+    #[test]
+    fn test_response_checksum_detects_corruption() {
+        let resp = WireResponse::new(42, 1, VolumeResponse::Ok).with_checksum();
+
+        // Tamper with the response
+        let mut tampered = resp;
+        tampered.response = VolumeResponse::error(libc::EIO);
+
+        assert!(!tampered.validate_checksum());
+    }
+
+    #[test]
+    fn test_no_checksum_passes_validation() {
+        // Backwards compatibility: no checksum = validation passes
+        let req = WireRequest::new(42, 1, VolumeRequest::Flush { ino: 1, fh: 1 });
+        assert!(req.checksum.is_none());
+        assert!(req.validate_checksum());
+
+        let resp = WireResponse::new(42, 1, VolumeResponse::Ok);
+        assert!(resp.checksum.is_none());
+        assert!(resp.validate_checksum());
+    }
+
+    #[test]
+    fn test_checksum_deterministic() {
+        let req1 = WireRequest::new(
+            42,
+            1,
+            VolumeRequest::Lookup {
+                parent: 1,
+                name: "test.txt".to_string(),
+                uid: 1000,
+                gid: 1000,
+                pid: 0,
+            },
+        );
+        let req2 = req1.clone();
+
+        assert_eq!(req1.compute_checksum(), req2.compute_checksum());
     }
 }
