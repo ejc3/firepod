@@ -1697,7 +1697,7 @@ fn mount_fuse_volumes(volumes: &[VolumeMount]) -> Result<Vec<String>> {
     for vol in volumes {
         let path = std::path::Path::new(&vol.guest_path);
         let mut ready = false;
-        for attempt in 1..=60 {
+        for attempt in 1..=61 {
             if let Ok(entries) = std::fs::read_dir(path) {
                 let count = entries.count();
                 eprintln!(
@@ -1709,7 +1709,9 @@ fn mount_fuse_volumes(volumes: &[VolumeMount]) -> Result<Vec<String>> {
                 ready = true;
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(500));
+            if attempt < 61 {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
         }
         if !ready {
             return Err(anyhow::anyhow!(
