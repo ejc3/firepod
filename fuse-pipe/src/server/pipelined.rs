@@ -648,7 +648,10 @@ mod tests {
 
         let reader_task = tokio::spawn(request_reader(read_half, handler, tx));
 
-        // Write an oversized length and keep the connection open to surface hangs.
+        // Write CRC header (dummy value) followed by an oversized length
+        let dummy_crc = 0u32.to_be_bytes();
+        client.write_all(&dummy_crc).await.unwrap();
+
         let oversized_len = ((MAX_MESSAGE_SIZE as u32) + 1).to_be_bytes();
         client.write_all(&oversized_len).await.unwrap();
 
