@@ -2625,6 +2625,7 @@ async fn run_vm_setup(
                 "nfs_mounts": nfs_mounts,
                 "image_archive": image_device.clone(),
                 "privileged": args.privileged,
+                "user": args.user.as_deref(),
                 "interactive": args.interactive,
                 "tty": args.tty,
                 // Use network-provided proxy, or fall back to environment variables.
