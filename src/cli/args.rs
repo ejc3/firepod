@@ -174,6 +174,12 @@ pub struct RunArgs {
     #[arg(long)]
     pub user: Option<String>,
 
+    /// Forward specific localhost ports to the host gateway via iptables DNAT.
+    /// Enables containers to reach host-only services via localhost.
+    /// Comma-separated port list, e.g., --forward-localhost 1421,9099
+    #[arg(long, value_delimiter = ',')]
+    pub forward_localhost: Vec<u16>,
+
     /// Run container in privileged mode (allows mknod, device access, etc.)
     /// Use for POSIX compliance tests that need full filesystem capabilities
     #[arg(long)]

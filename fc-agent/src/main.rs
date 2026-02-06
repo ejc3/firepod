@@ -36,6 +36,9 @@ struct Plan {
     /// Run container as USER:GROUP (e.g., "1000:1000")
     #[serde(default)]
     user: Option<String>,
+    /// Localhost ports to forward to host gateway via iptables DNAT
+    #[serde(default)]
+    forward_localhost: Vec<String>,
     /// Run container in privileged mode (allows mknod, device access, etc.)
     #[serde(default)]
     privileged: bool,
@@ -2248,6 +2251,38 @@ async fn run_agent() -> Result<()> {
 
     // Save proxy settings for exec commands to use
     save_proxy_settings(&plan);
+
+    // Forward specific localhost ports to host gateway via iptables DNAT.
+    // Only the listed ports are redirected — other localhost traffic stays local.
+    if !plan.forward_localhost.is_empty() {
+        let _ = std::process::Command::new("sysctl")
+            .args(["-w", "net.ipv4.conf.all.route_localnet=1"])
+            .output();
+        for port in &plan.forward_localhost {
+            let _ = std::process::Command::new("iptables")
+                .args([
+                    "-t",
+                    "nat",
+                    "-A",
+                    "OUTPUT",
+                    "-d",
+                    "127.0.0.0/8",
+                    "-p",
+                    "tcp",
+                    "--dport",
+                    port,
+                    "-j",
+                    "DNAT",
+                    "--to-destination",
+                    "10.0.2.2",
+                ])
+                .output();
+        }
+        eprintln!(
+            "[fc-agent] ✓ forwarding localhost ports to host: {:?}",
+            plan.forward_localhost
+        );
+    }
 
     // Sync VM clock from host before launching container
     // This ensures TLS certificate validation works immediately
