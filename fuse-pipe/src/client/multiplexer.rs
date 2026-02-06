@@ -458,6 +458,9 @@ mod tests {
         });
 
         // Drain the request so it is fully sent before we drop the server side.
+        // Wire format: CRC (4 bytes) + length (4 bytes) + body
+        let mut crc_buf = [0u8; 4];
+        server.read_exact(&mut crc_buf).unwrap();
         let mut len_buf = [0u8; 4];
         server.read_exact(&mut len_buf).unwrap();
         let len = u32::from_be_bytes(len_buf) as usize;
@@ -507,8 +510,11 @@ mod tests {
         });
 
         // Collect the two requests from the wire
+        // Wire format: CRC (4 bytes) + length (4 bytes) + body
         let mut requests = Vec::new();
         for _ in 0..2 {
+            let mut crc_buf = [0u8; 4];
+            server.read_exact(&mut crc_buf).unwrap();
             let mut len_buf = [0u8; 4];
             server.read_exact(&mut len_buf).unwrap();
             let len = u32::from_be_bytes(len_buf) as usize;
@@ -552,6 +558,9 @@ mod tests {
         });
 
         // Drain the outgoing request so the mux writer isn't blocked.
+        // Wire format: CRC (4 bytes) + length (4 bytes) + body
+        let mut crc_buf = [0u8; 4];
+        server.read_exact(&mut crc_buf).unwrap();
         let mut len_buf = [0u8; 4];
         server.read_exact(&mut len_buf).unwrap();
         let len = u32::from_be_bytes(len_buf) as usize;
