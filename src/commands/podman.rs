@@ -486,7 +486,10 @@ async fn create_disk_from_dir(
         .context("creating sparse file")?;
 
     if !truncate_status.success() {
-        bail!("truncate failed with exit code: {:?}", truncate_status.code());
+        bail!(
+            "truncate failed with exit code: {:?}",
+            truncate_status.code()
+        );
     }
 
     // Format as ext4
