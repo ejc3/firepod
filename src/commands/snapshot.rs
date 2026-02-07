@@ -681,14 +681,26 @@ pub async fn cmd_snapshot_run(args: SnapshotRunArgs) -> Result<()> {
 
     let network_config = network.setup().await.context("setting up network")?;
 
-    // Set health check URL: prefer caller-provided URL (from podman run's --health-check),
-    // then fall back to what the baseline VM had (saved in snapshot metadata).
+    // Set health check URL based on how we got here:
+    //
+    // 1. If caller provided --health-check, always use it (explicit user intent).
+    // 2. If called from `podman run` cache restore (detected by args.cpu being Some),
+    //    use exactly what the user specified — which is None if they didn't pass --health-check.
+    //    We must NOT inherit from snapshot metadata here because the cached snapshot may have
+    //    been created by a different `podman run` invocation that DID use --health-check.
+    // 3. If called from `fcvm snapshot run` CLI (args.cpu is None), fall back to snapshot
+    //    metadata so clones inherit the baseline's health check setting.
+    //
     // Do NOT fall back to network_config.health_check_url — that auto-assigns an HTTP health
     // check URL based on port forwarding, which gives clones HTTP health checks they shouldn't
     // have when the baseline VM didn't use --health-check.
     if let Some(ref hc) = args.health_check {
         vm_state.config.health_check_url = Some(hc.clone());
+    } else if args.cpu.is_some() {
+        // Called from `podman run` — use None (user didn't pass --health-check)
+        vm_state.config.health_check_url = None;
     } else {
+        // Called from `fcvm snapshot run` CLI — inherit from snapshot metadata
         vm_state.config.health_check_url = snapshot_config.metadata.health_check_url.clone();
     }
     if let Some(port) = network_config.health_check_port {
