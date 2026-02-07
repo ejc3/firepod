@@ -17,7 +17,7 @@ use crate::paths;
 use crate::state::{
     generate_vm_id, truncate_id, validate_vm_name, StateManager, VmState, VmStatus,
 };
-use crate::storage::SnapshotManager;
+use crate::storage::{SnapshotManager, SnapshotType};
 use crate::uffd::UffdServer;
 use crate::volume::{spawn_volume_servers, VolumeConfig};
 
@@ -681,13 +681,17 @@ pub async fn cmd_snapshot_run(args: SnapshotRunArgs) -> Result<()> {
 
     let network_config = network.setup().await.context("setting up network")?;
 
-    // Set health check URL from caller only (podman run's --health-check).
-    // Do NOT fall back to network_config.health_check_url or snapshot metadata — the network
-    // config auto-assigns http://127.x.y.z:8080/ which gives clones HTTP health checks they
-    // shouldn't have, and snapshot metadata may contain a health_check_url from a different
-    // caller that created the shared cache snapshot.
+    // Set health check URL:
+    // 1. Caller-provided (podman run's --health-check) takes priority
+    // 2. For user snapshots, fall back to snapshot metadata (baseline's health check)
+    // 3. For system/cache snapshots, do NOT fall back — the metadata may contain a
+    //    health_check_url from a different caller that created the shared cache snapshot
+    // Never fall back to network_config.health_check_url — the network config auto-assigns
+    // http://127.x.y.z:8080/ which gives clones HTTP health checks they shouldn't have.
     if let Some(ref hc) = args.health_check {
         vm_state.config.health_check_url = Some(hc.clone());
+    } else if snapshot_config.snapshot_type == SnapshotType::User {
+        vm_state.config.health_check_url = snapshot_config.metadata.health_check_url.clone();
     }
     if let Some(port) = network_config.health_check_port {
         vm_state.config.network.health_check_port = Some(port);
