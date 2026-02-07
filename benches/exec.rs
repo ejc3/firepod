@@ -33,7 +33,6 @@ struct VmConfigEntry {
 #[derive(Deserialize)]
 struct NetworkConfigEntry {
     loopback_ip: Option<String>,
-    health_check_port: Option<u16>,
 }
 
 /// Find the fcvm binary
@@ -481,6 +480,7 @@ impl CloneFixture {
         let start = Instant::now();
 
         // Spawn clone (without --exec so it stays running)
+        let health_port = 8080;
         let mut child = Command::new(&fcvm)
             .args([
                 "snapshot",
@@ -489,6 +489,8 @@ impl CloneFixture {
                 &self.serve_pid.to_string(),
                 "--network",
                 network,
+                "--publish",
+                &format!("{}:80", health_port),
             ])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -498,7 +500,7 @@ impl CloneFixture {
         let clone_pid = child.id();
 
         // Poll for healthy and get loopback IP
-        let (loopback_ip, health_port) = loop {
+        let loopback_ip = loop {
             if start.elapsed() > Duration::from_secs(30) {
                 let _ = Command::new("kill")
                     .args(["-9", &clone_pid.to_string()])
@@ -522,8 +524,7 @@ impl CloneFixture {
                                 .loopback_ip
                                 .clone()
                                 .expect("no loopback_ip for healthy clone");
-                            let port = vm.config.network.health_check_port.unwrap_or(8080);
-                            break (ip, port);
+                            break ip;
                         }
                     }
                 }
