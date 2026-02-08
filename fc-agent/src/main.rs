@@ -627,10 +627,14 @@ fn rebind_mount_cross_ns(container_pid: &str, guest_path: &str) -> Result<(), St
     use std::ffi::CString;
     use std::os::unix::io::AsRawFd;
 
-    // Syscall numbers for aarch64
+    // Syscall numbers (same on both aarch64 and x86_64, added in Linux 5.2)
     #[cfg(target_arch = "aarch64")]
     const SYS_OPEN_TREE: libc::c_long = 428;
     #[cfg(target_arch = "aarch64")]
+    const SYS_MOVE_MOUNT: libc::c_long = 429;
+    #[cfg(target_arch = "x86_64")]
+    const SYS_OPEN_TREE: libc::c_long = 428;
+    #[cfg(target_arch = "x86_64")]
     const SYS_MOVE_MOUNT: libc::c_long = 429;
 
     const OPEN_TREE_CLONE: libc::c_ulong = 1;
