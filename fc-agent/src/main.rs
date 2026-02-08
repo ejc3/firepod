@@ -439,7 +439,20 @@ async fn handle_clone_restore(volumes: &[VolumeMount]) {
     // Note: Interface bounce (ip link down/up) is NOT needed - ss -K handles socket cleanup
     // more effectively by directly destroying sockets rather than hoping they notice ENETDOWN.
 
-    // 4. Remount FUSE volumes if any
+    // 4. Reconnect output vsock (broken by snapshot vsock reset)
+    let old_fd = OUTPUT_VSOCK_FD.load(std::sync::atomic::Ordering::Relaxed);
+    if old_fd >= 0 {
+        unsafe { libc::close(old_fd) };
+    }
+    let new_fd = create_output_vsock();
+    OUTPUT_VSOCK_FD.store(new_fd, std::sync::atomic::Ordering::Relaxed);
+    if new_fd >= 0 {
+        eprintln!("[fc-agent] ✓ output vsock reconnected after restore");
+    } else {
+        eprintln!("[fc-agent] WARNING: failed to reconnect output vsock after restore");
+    }
+
+    // 5. Remount FUSE volumes if any
     if !volumes.is_empty() {
         eprintln!(
             "[fc-agent] clone has {} volume(s) to remount",
@@ -1070,6 +1083,10 @@ const OUTPUT_VSOCK_PORT: u32 = 4997;
 /// Host CID for vsock (always 2)
 const HOST_CID: u32 = 2;
 
+/// Global output vsock fd, shared between output streaming tasks and restore-epoch watcher.
+/// Updated atomically when reconnecting after snapshot restore.
+static OUTPUT_VSOCK_FD: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+
 /// Request from host to execute a command
 #[derive(Debug, Deserialize)]
 struct ExecRequest {
@@ -1590,7 +1607,13 @@ fn create_output_vsock() -> i32 {
 
 /// Send a line of container output to host via vsock.
 /// Format: stdout:line or stderr:line (raw, no JSON)
-fn send_output_line(fd: i32, stream: &str, line: &str) {
+/// Reads the fd from the global OUTPUT_VSOCK_FD (updated on snapshot restore reconnect).
+///
+/// After snapshot restore, the old fd is closed by handle_clone_restore() and
+/// the write returns EBADF immediately (no blocking). The restore-epoch watcher
+/// then reconnects and stores the new fd. Subsequent writes use the new fd.
+fn send_output_line(stream: &str, line: &str) {
+    let fd = OUTPUT_VSOCK_FD.load(std::sync::atomic::Ordering::Relaxed);
     if fd < 0 {
         return;
     }
@@ -2640,13 +2663,17 @@ async fn run_agent() -> Result<()> {
     }
 
     // Connect output vsock early so host can track our progress during long operations
-    // (image import can take 10+ minutes for large images)
-    let output_fd = create_output_vsock();
-    if output_fd >= 0 {
-        eprintln!(
-            "[fc-agent] output vsock connected early (port {})",
-            OUTPUT_VSOCK_PORT
-        );
+    // (image import can take 10+ minutes for large images).
+    // Store in global OUTPUT_VSOCK_FD so it can be reconnected after snapshot restore.
+    {
+        let fd = create_output_vsock();
+        OUTPUT_VSOCK_FD.store(fd, std::sync::atomic::Ordering::Relaxed);
+        if fd >= 0 {
+            eprintln!(
+                "[fc-agent] output vsock connected early (port {})",
+                OUTPUT_VSOCK_PORT
+            );
+        }
     }
 
     // Determine the image reference for podman run
@@ -2678,7 +2705,7 @@ async fn run_agent() -> Result<()> {
                     break result.context("waiting for podman load")?;
                 }
                 _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
-                    send_output_line(output_fd, "heartbeat", "importing image");
+                    send_output_line("heartbeat", "importing image");
                     eprintln!("[fc-agent] heartbeat: still importing image...");
                 }
             }
@@ -3084,19 +3111,13 @@ async fn run_agent() -> Result<()> {
     // The host listens on vsock.sock_4999 for status messages
     notify_container_started();
 
-    // Stream stdout via vsock (wrapped in Arc for sharing across tasks)
-    let output_fd_arc = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(output_fd));
+    // Stream stdout via vsock (uses global OUTPUT_VSOCK_FD, reconnected on snapshot restore)
     let stdout_task = if let Some(stdout) = child.stdout.take() {
-        let fd = output_fd_arc.clone();
         Some(tokio::spawn(async move {
             let reader = BufReader::new(stdout);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                send_output_line(
-                    fd.load(std::sync::atomic::Ordering::Relaxed),
-                    "stdout",
-                    &line,
-                );
+                send_output_line("stdout", &line);
             }
         }))
     } else {
@@ -3105,16 +3126,11 @@ async fn run_agent() -> Result<()> {
 
     // Stream stderr via vsock
     let stderr_task = if let Some(stderr) = child.stderr.take() {
-        let fd = output_fd_arc.clone();
         Some(tokio::spawn(async move {
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                send_output_line(
-                    fd.load(std::sync::atomic::Ordering::Relaxed),
-                    "stderr",
-                    &line,
-                );
+                send_output_line("stderr", &line);
             }
         }))
     } else {
@@ -3122,23 +3138,20 @@ async fn run_agent() -> Result<()> {
     };
 
     // Read stdin from vsock and forward to container (bidirectional I/O)
-    let stdin_task = if output_fd >= 0 {
+    let current_fd = OUTPUT_VSOCK_FD.load(std::sync::atomic::Ordering::Relaxed);
+    let stdin_task = if current_fd >= 0 {
         if let Some(mut stdin) = child.stdin.take() {
-            // Duplicate the fd for reading (original used for writing)
-            let read_fd = unsafe { libc::dup(output_fd) };
+            let read_fd = unsafe { libc::dup(current_fd) };
             if read_fd >= 0 {
                 Some(tokio::spawn(async move {
                     use std::os::unix::io::FromRawFd;
                     use tokio::io::AsyncWriteExt;
-                    // Convert to async file for reading
                     let file = unsafe { std::fs::File::from_raw_fd(read_fd) };
                     let file = tokio::fs::File::from_std(file);
                     let reader = BufReader::new(file);
                     let mut lines = reader.lines();
                     while let Ok(Some(line)) = lines.next_line().await {
-                        // Parse stdin:content format
                         if let Some(content) = line.strip_prefix("stdin:") {
-                            // Write to container stdin
                             if stdin.write_all(content.as_bytes()).await.is_err() {
                                 break;
                             }
@@ -3176,8 +3189,9 @@ async fn run_agent() -> Result<()> {
     }
 
     // Close output vsock
-    if output_fd >= 0 {
-        unsafe { libc::close(output_fd) };
+    let final_fd = OUTPUT_VSOCK_FD.swap(-1, std::sync::atomic::Ordering::Relaxed);
+    if final_fd >= 0 {
+        unsafe { libc::close(final_fd) };
     }
 
     if status.success() {
@@ -3202,14 +3216,14 @@ async fn run_agent() -> Result<()> {
                     eprintln!("[fc-agent] === podman logs (stdout) ===");
                     for line in stdout.lines() {
                         eprintln!("[fc-agent] {}", line);
-                        send_output_line(output_fd, "stdout", line);
+                        send_output_line("stdout", line);
                     }
                 }
                 if !stderr.is_empty() {
                     eprintln!("[fc-agent] === podman logs (stderr) ===");
                     for line in stderr.lines() {
                         eprintln!("[fc-agent] {}", line);
-                        send_output_line(output_fd, "stderr", line);
+                        send_output_line("stderr", line);
                     }
                 }
                 if stdout.is_empty() && stderr.is_empty() {

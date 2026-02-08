@@ -1064,105 +1064,109 @@ pub(crate) async fn run_output_listener(
 
     let mut output_lines: Vec<(String, String)> = Vec::new();
 
-    // Accept connection from fc-agent (no timeout - image import can take 10+ min)
-    let (stream, _) = match listener.accept().await {
-        Ok(conn) => conn,
-        Err(e) => {
-            warn!(vm_id = %vm_id, error = %e, "Error accepting output connection");
-            let _ = std::fs::remove_file(socket_path);
-            return Ok(output_lines);
-        }
-    };
-
-    debug!(vm_id = %vm_id, "Output connection established");
-
-    let (reader, writer) = stream.into_split();
-    let mut reader = BufReader::new(reader);
-    let writer = std::sync::Arc::new(tokio::sync::Mutex::new(writer));
-    let mut line_buf = String::new();
-
-    // Spawn stdin forwarder if interactive mode
-    let stdin_task = if interactive {
-        let writer = writer.clone();
-        Some(tokio::spawn(async move {
-            let stdin = tokio::io::stdin();
-            let mut stdin = BufReader::new(stdin);
-            let mut line = String::new();
-            loop {
-                line.clear();
-                match stdin.read_line(&mut line).await {
-                    Ok(0) => break, // EOF
-                    Ok(_) => {
-                        // Forward to container: "stdin:content\n"
-                        let msg = format!("stdin:{}", line.trim_end());
-                        let mut w = writer.lock().await;
-                        if w.write_all(msg.as_bytes()).await.is_err() {
-                            break;
-                        }
-                        if w.write_all(b"\n").await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        }))
-    } else {
-        None
-    };
-
-    // Read lines until connection closes (no read timeout — large image imports
-    // can take 10+ minutes during which fc-agent produces no output)
+    // Outer loop: accept connections repeatedly.
+    // Firecracker resets all vsock connections during snapshot creation, so fc-agent
+    // will reconnect after each snapshot. We must keep accepting new connections.
     loop {
-        line_buf.clear();
-        match reader.read_line(&mut line_buf).await {
-            Ok(0) => {
-                // EOF - connection closed
-                debug!(vm_id = %vm_id, "Output connection closed");
+        // Accept connection from fc-agent (no timeout - image import can take 10+ min)
+        let (stream, _) = match listener.accept().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                warn!(vm_id = %vm_id, error = %e, "Error accepting output connection");
                 break;
             }
-            Ok(_) => {
-                // Parse raw line format: stream:content
-                let line = line_buf.trim_end();
-                if let Some((stream, content)) = line.split_once(':') {
-                    if stream == "heartbeat" {
-                        // Heartbeat from fc-agent during long operations (image import/pull)
-                        info!(vm_id = %vm_id, phase = %content, "VM heartbeat");
-                    } else {
-                        // Print container output directly (stdout to stdout, stderr to stderr)
-                        // No prefix - clean output for scripting
-                        if stream == "stdout" {
-                            println!("{}", content);
-                        } else {
-                            eprintln!("{}", content);
+        };
+
+        debug!(vm_id = %vm_id, "Output connection established");
+
+        let (reader, writer) = stream.into_split();
+        let mut reader = BufReader::new(reader);
+        let writer = std::sync::Arc::new(tokio::sync::Mutex::new(writer));
+        let mut line_buf = String::new();
+
+        // Spawn stdin forwarder if interactive mode
+        let stdin_task = if interactive {
+            let writer = writer.clone();
+            Some(tokio::spawn(async move {
+                let stdin = tokio::io::stdin();
+                let mut stdin = BufReader::new(stdin);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match stdin.read_line(&mut line).await {
+                        Ok(0) => break, // EOF
+                        Ok(_) => {
+                            // Forward to container: "stdin:content\n"
+                            let msg = format!("stdin:{}", line.trim_end());
+                            let mut w = writer.lock().await;
+                            if w.write_all(msg.as_bytes()).await.is_err() {
+                                break;
+                            }
+                            if w.write_all(b"\n").await.is_err() {
+                                break;
+                            }
                         }
-                        output_lines.push((stream.to_string(), content.to_string()));
+                        Err(_) => break,
                     }
+                }
+            }))
+        } else {
+            None
+        };
 
-                    // Forward to broadcast channel for library consumers
-                    if let Some(ref tx) = log_tx {
-                        let _ = tx.send(LogLine {
-                            stream: stream.to_string(),
-                            content: content.to_string(),
-                        });
+        // Read lines until connection closes (no read timeout — large image imports
+        // can take 10+ minutes during which fc-agent produces no output)
+        loop {
+            line_buf.clear();
+            match reader.read_line(&mut line_buf).await {
+                Ok(0) => {
+                    // EOF - connection closed (vsock reset from snapshot, or VM exit)
+                    info!(vm_id = %vm_id, "Output connection closed, waiting for reconnect");
+                    break;
+                }
+                Ok(_) => {
+                    // Parse raw line format: stream:content
+                    let line = line_buf.trim_end();
+                    if let Some((stream, content)) = line.split_once(':') {
+                        if stream == "heartbeat" {
+                            // Heartbeat from fc-agent during long operations (image import/pull)
+                            info!(vm_id = %vm_id, phase = %content, "VM heartbeat");
+                        } else {
+                            // Print container output directly (stdout to stdout, stderr to stderr)
+                            // No prefix - clean output for scripting
+                            if stream == "stdout" {
+                                println!("{}", content);
+                            } else {
+                                eprintln!("{}", content);
+                            }
+                            output_lines.push((stream.to_string(), content.to_string()));
+                        }
+
+                        // Forward to broadcast channel for library consumers
+                        if let Some(ref tx) = log_tx {
+                            let _ = tx.send(LogLine {
+                                stream: stream.to_string(),
+                                content: content.to_string(),
+                            });
+                        }
+
+                        // Send ack back (bidirectional)
+                        let mut w = writer.lock().await;
+                        let _ = w.write_all(b"ack\n").await;
                     }
-
-                    // Send ack back (bidirectional)
-                    let mut w = writer.lock().await;
-                    let _ = w.write_all(b"ack\n").await;
+                }
+                Err(e) => {
+                    warn!(vm_id = %vm_id, error = %e, "Error reading output, waiting for reconnect");
+                    break;
                 }
             }
-            Err(e) => {
-                warn!(vm_id = %vm_id, error = %e, "Error reading output");
-                break;
-            }
         }
-    }
 
-    // Abort stdin task if it's still running
-    if let Some(task) = stdin_task {
-        task.abort();
-    }
+        // Abort stdin task before accepting next connection
+        if let Some(task) = stdin_task {
+            task.abort();
+        }
+    } // outer accept loop
 
     // Clean up
     let _ = std::fs::remove_file(socket_path);
