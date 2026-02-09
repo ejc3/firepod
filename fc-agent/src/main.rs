@@ -3175,11 +3175,6 @@ async fn run_agent() -> Result<()> {
         let _ = task.await;
     }
 
-    // Close output vsock
-    if output_fd >= 0 {
-        unsafe { libc::close(output_fd) };
-    }
-
     if status.success() {
         eprintln!("[fc-agent] container exited successfully");
     } else {
@@ -3220,6 +3215,11 @@ async fn run_agent() -> Result<()> {
                 eprintln!("[fc-agent] failed to get podman logs: {}", e);
             }
         }
+    }
+
+    // Close output vsock after all output (including failure logs) has been sent
+    if output_fd >= 0 {
+        unsafe { libc::close(output_fd) };
     }
 
     // Clean up the container (we don't use --rm so we can capture logs on failure)
