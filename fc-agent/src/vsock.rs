@@ -58,6 +58,11 @@ impl VsockStream {
                 };
                 if n < 0 {
                     Err(std::io::Error::last_os_error())
+                } else if n == 0 {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::WriteZero,
+                        "vsock write returned 0 (connection closed)",
+                    ))
                 } else {
                     Ok(n as usize)
                 }
