@@ -445,7 +445,7 @@ async fn handle_clone_restore(volumes: &[VolumeMount]) {
         unsafe { libc::close(old_fd) };
     }
     let new_fd = create_output_vsock();
-    OUTPUT_VSOCK_FD.store(new_fd, std::sync::atomic::Ordering::Relaxed);
+    OUTPUT_VSOCK_FD.store(new_fd, std::sync::atomic::Ordering::Release);
     if new_fd >= 0 {
         eprintln!("[fc-agent] ✓ output vsock reconnected after restore");
     } else {
@@ -1613,14 +1613,18 @@ fn create_output_vsock() -> i32 {
 /// the write returns EBADF immediately (no blocking). The restore-epoch watcher
 /// then reconnects and stores the new fd. Subsequent writes use the new fd.
 fn send_output_line(stream: &str, line: &str) {
-    let fd = OUTPUT_VSOCK_FD.load(std::sync::atomic::Ordering::Relaxed);
+    let fd = OUTPUT_VSOCK_FD.load(std::sync::atomic::Ordering::Acquire);
     if fd < 0 {
         return;
     }
     // Raw format: stream:line\n
     let data = format!("{}:{}\n", stream, line);
-    unsafe {
-        libc::write(fd, data.as_ptr() as *const libc::c_void, data.len());
+    let result = unsafe {
+        libc::write(fd, data.as_ptr() as *const libc::c_void, data.len())
+    };
+    if result < 0 {
+        let err = std::io::Error::last_os_error();
+        eprintln!("[fc-agent] WARNING: output vsock write failed: {} (fd={})", err, fd);
     }
 }
 
@@ -2667,7 +2671,7 @@ async fn run_agent() -> Result<()> {
     // Store in global OUTPUT_VSOCK_FD so it can be reconnected after snapshot restore.
     {
         let fd = create_output_vsock();
-        OUTPUT_VSOCK_FD.store(fd, std::sync::atomic::Ordering::Relaxed);
+        OUTPUT_VSOCK_FD.store(fd, std::sync::atomic::Ordering::Release);
         if fd >= 0 {
             eprintln!(
                 "[fc-agent] output vsock connected early (port {})",
@@ -3100,8 +3104,7 @@ async fn run_agent() -> Result<()> {
     let mut cmd = Command::new(&podman_args[0]);
     cmd.args(&podman_args[1..]);
 
-    // Spawn container with piped stdin/stdout/stderr for bidirectional I/O
-    cmd.stdin(Stdio::piped());
+    // Pipe stdout/stderr so we can stream them to host via vsock
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
@@ -3111,85 +3114,84 @@ async fn run_agent() -> Result<()> {
     // The host listens on vsock.sock_4999 for status messages
     notify_container_started();
 
-    // Stream stdout via vsock (uses global OUTPUT_VSOCK_FD, reconnected on snapshot restore)
+    // Channel-based output: decouple container output reading from vsock writing.
+    // A dedicated writer thread handles the blocking libc::write() to the vsock,
+    // keeping tokio worker threads free for async I/O.
+    let (output_tx, output_rx) = std::sync::mpsc::sync_channel::<String>(4096);
+
+    // Dedicated writer thread for vsock output
+    let writer_thread = std::thread::spawn(move || {
+        for msg in output_rx {
+            let fd = OUTPUT_VSOCK_FD.load(std::sync::atomic::Ordering::Acquire);
+            if fd < 0 {
+                continue;
+            }
+            let result = unsafe {
+                libc::write(fd, msg.as_ptr() as *const libc::c_void, msg.len())
+            };
+            if result < 0 {
+                let err = std::io::Error::last_os_error();
+                eprintln!(
+                    "[fc-agent] WARNING: output vsock write failed: {} (fd={})",
+                    err, fd
+                );
+            }
+        }
+    });
+
+    // Stream stdout via channel → writer thread → vsock
+    let stdout_tx = output_tx.clone();
     let stdout_task = if let Some(stdout) = child.stdout.take() {
         Some(tokio::spawn(async move {
             let reader = BufReader::new(stdout);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                send_output_line("stdout", &line);
+                let msg = format!("stdout:{}\n", line);
+                if stdout_tx.send(msg).is_err() {
+                    break; // Writer thread exited
+                }
             }
         }))
     } else {
         None
     };
 
-    // Stream stderr via vsock
+    // Stream stderr via channel → writer thread → vsock
+    let stderr_tx = output_tx.clone();
     let stderr_task = if let Some(stderr) = child.stderr.take() {
         Some(tokio::spawn(async move {
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                send_output_line("stderr", &line);
+                let msg = format!("stderr:{}\n", line);
+                if stderr_tx.send(msg).is_err() {
+                    break; // Writer thread exited
+                }
             }
         }))
     } else {
         None
     };
 
-    // Read stdin from vsock and forward to container (bidirectional I/O)
-    let current_fd = OUTPUT_VSOCK_FD.load(std::sync::atomic::Ordering::Relaxed);
-    let stdin_task = if current_fd >= 0 {
-        if let Some(mut stdin) = child.stdin.take() {
-            let read_fd = unsafe { libc::dup(current_fd) };
-            if read_fd >= 0 {
-                Some(tokio::spawn(async move {
-                    use std::os::unix::io::FromRawFd;
-                    use tokio::io::AsyncWriteExt;
-                    let file = unsafe { std::fs::File::from_raw_fd(read_fd) };
-                    let file = tokio::fs::File::from_std(file);
-                    let reader = BufReader::new(file);
-                    let mut lines = reader.lines();
-                    while let Ok(Some(line)) = lines.next_line().await {
-                        if let Some(content) = line.strip_prefix("stdin:") {
-                            if stdin.write_all(content.as_bytes()).await.is_err() {
-                                break;
-                            }
-                            if stdin.write_all(b"\n").await.is_err() {
-                                break;
-                            }
-                        }
-                    }
-                }))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    // Drop our copy of the sender (stdout/stderr tasks hold their own clones)
+    drop(output_tx);
 
     // Wait for container to exit
     let status = child.wait().await?;
     let exit_code = status.code().unwrap_or(1);
 
-    // Abort stdin task (container exited, no more input needed)
-    if let Some(task) = stdin_task {
-        task.abort();
-    }
-
-    // Wait for output streams to complete before closing vsock
+    // Wait for output streams to drain, then writer thread to finish
     if let Some(task) = stdout_task {
         let _ = task.await;
     }
     if let Some(task) = stderr_task {
         let _ = task.await;
     }
+    // All senders dropped → writer_thread recv() returns Err → thread exits
+    let _ = writer_thread.join();
 
     // Close output vsock
-    let final_fd = OUTPUT_VSOCK_FD.swap(-1, std::sync::atomic::Ordering::Relaxed);
+    let final_fd = OUTPUT_VSOCK_FD.swap(-1, std::sync::atomic::Ordering::Release);
     if final_fd >= 0 {
         unsafe { libc::close(final_fd) };
     }
