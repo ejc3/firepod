@@ -2,6 +2,7 @@ use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use std::net::ToSocketAddrs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, warn};
@@ -175,6 +176,9 @@ pub struct VmContext {
     pub args: RunArgs,
     pub disk_path: PathBuf,
     pub log_tx: tokio::sync::broadcast::Sender<LogLine>,
+    /// Notify the output listener to drop its current connection and re-accept.
+    /// Triggered after each snapshot (vsock connections reset during snapshot).
+    pub output_reconnect: Arc<tokio::sync::Notify>,
 }
 
 /// A log line from the VM's container output.
@@ -1042,16 +1046,14 @@ async fn run_status_listener(
 ///   Guest → Host: "stdout:content" or "stderr:content"
 ///   Host → Guest: "stdin:content" (written to container stdin)
 ///
-/// If `interactive` is true, forwards host stdin to container.
-///
 /// Returns collected output lines as Vec<(stream, line)>.
 pub(crate) async fn run_output_listener(
     socket_path: &str,
     vm_id: &str,
-    interactive: bool,
     log_tx: Option<tokio::sync::broadcast::Sender<LogLine>>,
+    reconnect_notify: Arc<tokio::sync::Notify>,
 ) -> Result<Vec<(String, String)>> {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::io::{AsyncBufReadExt, BufReader};
     use tokio::net::UnixListener;
 
     // Remove stale socket if it exists
@@ -1079,46 +1081,23 @@ pub(crate) async fn run_output_listener(
 
         debug!(vm_id = %vm_id, "Output connection established");
 
-        let (reader, writer) = stream.into_split();
-        let mut reader = BufReader::new(reader);
-        let writer = std::sync::Arc::new(tokio::sync::Mutex::new(writer));
+        let mut reader = BufReader::new(stream);
         let mut line_buf = String::new();
 
-        // Spawn stdin forwarder if interactive mode
-        let stdin_task = if interactive {
-            let writer = writer.clone();
-            Some(tokio::spawn(async move {
-                let stdin = tokio::io::stdin();
-                let mut stdin = BufReader::new(stdin);
-                let mut line = String::new();
-                loop {
-                    line.clear();
-                    match stdin.read_line(&mut line).await {
-                        Ok(0) => break, // EOF
-                        Ok(_) => {
-                            // Forward to container: "stdin:content\n"
-                            let msg = format!("stdin:{}", line.trim_end());
-                            let mut w = writer.lock().await;
-                            if w.write_all(msg.as_bytes()).await.is_err() {
-                                break;
-                            }
-                            if w.write_all(b"\n").await.is_err() {
-                                break;
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-            }))
-        } else {
-            None
-        };
-
-        // Read lines until connection closes (no read timeout — large image imports
-        // can take 10+ minutes during which fc-agent produces no output)
+        // Read lines until connection closes or snapshot triggers reconnect.
+        // During snapshot, Firecracker resets vsock but the host-side Unix socket
+        // stays open (no EOF). The reconnect_notify signals us to drop this
+        // connection so fc-agent's new vsock connection can be accepted.
         loop {
             line_buf.clear();
-            match reader.read_line(&mut line_buf).await {
+            let read_result = tokio::select! {
+                result = reader.read_line(&mut line_buf) => result,
+                _ = reconnect_notify.notified() => {
+                    info!(vm_id = %vm_id, "Snapshot reconnect signal, dropping old connection");
+                    break;
+                }
+            };
+            match read_result {
                 Ok(0) => {
                     // EOF - connection closed (vsock reset from snapshot, or VM exit)
                     info!(vm_id = %vm_id, "Output connection closed, waiting for reconnect");
@@ -1149,10 +1128,6 @@ pub(crate) async fn run_output_listener(
                                 content: content.to_string(),
                             });
                         }
-
-                        // Send ack back (bidirectional)
-                        let mut w = writer.lock().await;
-                        let _ = w.write_all(b"ack\n").await;
                     }
                 }
                 Err(e) => {
@@ -1160,11 +1135,6 @@ pub(crate) async fn run_output_listener(
                     break;
                 }
             }
-        }
-
-        // Abort stdin task before accepting next connection
-        if let Some(task) = stdin_task {
-            task.abort();
         }
     } // outer accept loop
 
@@ -1716,12 +1686,14 @@ pub async fn prepare_vm(mut args: RunArgs) -> Result<Option<VmContext>> {
     let (log_tx, _) = tokio::sync::broadcast::channel::<LogLine>(1000);
 
     // For non-TTY mode, use async output listener
+    let output_reconnect = Arc::new(tokio::sync::Notify::new());
     let output_handle = if !tty_mode {
         let socket_path = output_socket_path.clone();
         let vm_id_clone = vm_id.clone();
         let log_tx_clone = Some(log_tx.clone());
+        let reconnect = output_reconnect.clone();
         Some(tokio::spawn(async move {
-            match run_output_listener(&socket_path, &vm_id_clone, interactive, log_tx_clone).await {
+            match run_output_listener(&socket_path, &vm_id_clone, log_tx_clone, reconnect).await {
                 Ok(lines) => lines,
                 Err(e) => {
                     tracing::warn!("Output listener error: {}", e);
@@ -1822,6 +1794,7 @@ pub async fn prepare_vm(mut args: RunArgs) -> Result<Option<VmContext>> {
         args,
         disk_path,
         log_tx,
+        output_reconnect,
     }))
 }
 
@@ -1871,9 +1844,13 @@ pub async fn run_vm_loop(ctx: &mut VmContext, cancel: CancellationToken) -> Resu
                         }
                         SnapshotOutcome::Created => {
                             info!(snapshot_key = %key, "Pre-start snapshot created successfully");
+                            // Signal output listener to re-accept (vsock reset during snapshot)
+                            ctx.output_reconnect.notify_one();
                         }
                         SnapshotOutcome::Failed(e) => {
                             warn!(snapshot_key = %key, error = %e, "Failed to create pre-start snapshot");
+                            // Signal even on failure — vsock was still reset during the attempt
+                            ctx.output_reconnect.notify_one();
                         }
                     }
                     // Send ack back regardless of success (fc-agent should continue)
@@ -1915,9 +1892,13 @@ pub async fn run_vm_loop(ctx: &mut VmContext, cancel: CancellationToken) -> Resu
                             }
                             SnapshotOutcome::Created => {
                                 info!(snapshot_key = %startup_key, "Startup snapshot created successfully");
+                                // Signal output listener to re-accept (vsock reset during snapshot)
+                                ctx.output_reconnect.notify_one();
                             }
                             SnapshotOutcome::Failed(e) => {
                                 warn!(snapshot_key = %startup_key, error = %e, "Failed to create startup snapshot");
+                                // Signal even on failure — vsock was still reset during the attempt
+                                ctx.output_reconnect.notify_one();
                             }
                         }
                     }
