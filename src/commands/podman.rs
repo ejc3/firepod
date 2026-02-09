@@ -2349,6 +2349,7 @@ async fn build_and_send_mmds(
                 "image_archive": image_device,
                 "privileged": args.privileged,
                 "user": args.user.as_deref(),
+                "forward_localhost": args.forward_localhost.iter().map(|p| p.to_string()).collect::<Vec<_>>(),
                 "interactive": args.interactive,
                 "tty": args.tty,
                 // Use network-provided proxy, or fall back to environment variables.
