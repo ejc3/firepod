@@ -195,17 +195,89 @@ Recursive nesting (Host → L1 → L2 → ...) is enabled via the `arm64.nv2` ke
 - **Host kernel**: 6.18+ with `kvm-arm.mode=nested` AND DSB patches
 - **Nested kernel**: Custom kernel with CONFIG_KVM=y (use `--kernel-profile nested`)
 
+### Kernel Patch Layout
+
+```
+kernel/
+├── 0001-fuse-add-remap_file_range-support.patch  # Universal (symlinked down)
+├── host/
+│   └── arm64/
+│       ├── 0001-fuse-*.patch -> ../../           # symlink
+│       └── nv2-mmio-barrier.patch                # DSB before ioeventfd in io_mem_abort()
+├── nested/
+│   └── arm64/
+│       ├── 0001-fuse-*.patch -> ../../           # symlink
+│       ├── nv2-vsock-cache-sync.patch            # DSB at kvm_nested_sync_hwstate()
+│       ├── nv2-vsock-dcache-flush.patch          # Cache flush in vsock TX
+│       ├── nv2-vsock-rx-barrier.patch            # DSB before virtqueue read
+│       ├── nv2-virtio-kick-barrier.patch         # Flush vring before notify
+│       ├── mmfr4-override.vm.patch               # ID register override
+│       ├── psci-debug-handle-exit.patch          # PSCI debug logging
+│       └── psci-debug-psci.patch                 # PSCI debug logging
+├── nested.conf
+└── nested-x86.conf
+```
+
+**Principle**: Put patches at highest level where they apply, symlink down.
+
+### Kernel Patch Management (stgit)
+
+Patches are managed with **stgit** (Stacked Git) in `~/linux` for automatic line number updates.
+
+**Branches:**
+- `fcvm-host`: v6.18 + FUSE patch + host DSB barrier
+- `fcvm-nested`: v6.18 + all nested patches
+
+**Editing a patch:**
+```bash
+cd ~/linux
+git checkout fcvm-nested
+# Make changes to source files
+stg refresh                    # Updates current patch
+```
+
+**Adding a new patch:**
+```bash
+stg new my-fix -m "Fix something"
+# Make changes
+stg refresh
+```
+
+**Exporting to fcvm:**
+```bash
+stg export -d /home/ubuntu/fcvm/kernel/nested/arm64/
+# For host:
+git checkout fcvm-host
+stg export -d /home/ubuntu/fcvm/kernel/host/arm64/
+```
+
+**Rebasing when kernel version changes:**
+```bash
+git fetch origin tag v6.19
+stg rebase v6.19               # Auto-adjusts line numbers
+stg export -d /home/ubuntu/fcvm/kernel/nested/arm64/
+```
+
+**Sparse checkout:** The ~/linux repo uses sparse checkout. Add directories as needed:
+```bash
+git sparse-checkout add drivers/virtio net/vmw_vsock
+```
+
 ### Host Kernel with DSB Patches
 
-**CRITICAL**: Both host AND guest kernels need DSB patches for cache coherency under NV2.
-
 **Install host kernel**: `make install-host-kernel` (builds kernel, installs to /boot, updates GRUB).
-Patches from `kernel/patches/` are applied automatically during the build.
+Patches from `kernel/host/arm64/` are applied automatically.
 
-**Current patches** (all apply to both host and guest kernels):
-- `nv2-vsock-cache-sync.patch`: DSB SY in `kvm_nested_sync_hwstate()`
-- `nv2-vsock-rx-barrier.patch`: DSB SY in `virtio_transport_rx_work()`
-- `mmfr4-override.vm.patch`: ID register override for recursive nesting (guest only)
+**Host patches** (L0 bare metal):
+- `nv2-mmio-barrier.patch`: DSB SY before ioeventfd signaling in io_mem_abort()
+
+**Nested patches** (L1 guest VM):
+- `nv2-vsock-cache-sync.patch`: DSB SY in kvm_nested_sync_hwstate() after nested exit
+- `nv2-vsock-dcache-flush.patch`: Cache flush in vsock TX path for NV2
+- `nv2-vsock-rx-barrier.patch`: DSB SY before reading virtqueue in RX path
+- `nv2-virtio-kick-barrier.patch`: Flush vring cache + DSB+ISB before virtqueue_notify()
+- `mmfr4-override.vm.patch`: ID register override for recursive nesting
+- `psci-debug-*.patch`: Debug logging for PSCI shutdown (temporary)
 
 **VM Graceful Shutdown (PSCI)**:
 - fc-agent uses `poweroff -f` to trigger PSCI SYSTEM_OFF (function ID 0x84000008)
@@ -275,7 +347,7 @@ make test-root FILTER=kvm
 
 1. Added `arm64.nv2` alias for `id_aa64mmfr4.nv_frac=2` (NV2_ONLY)
 2. Changed `FTR_LOWER_SAFE` to `FTR_HIGHER_SAFE` for MMFR4 to allow upward overrides
-3. Kernel patch: `kernel/patches/mmfr4-override.patch`
+3. Kernel patch: `kernel/nested/arm64/mmfr4-override.vm.patch`
 
 **Why it's safe**: The host KVM *does* provide NV2 emulation - we're just fixing the guest's
 view of this capability. We're not faking a feature, we're correcting a visibility issue.
@@ -311,7 +383,7 @@ From [`arch/arm64/kvm/arch_timer.c`](https://github.com/torvalds/linux/blob/mast
 issues due to double Stage 2 translation (L2 GPA → L1 S2 → L1 HPA → L0 S2 → physical). Large writes
 that fragment into multiple vsock packets may see stale/zero data instead of actual content.
 
-**Fix**: The DSB SY kernel patch in `kernel/patches/nv2-vsock-cache-sync.patch` fixes this issue.
+**Fix**: The DSB SY kernel patch in `kernel/nested/arm64/nv2-vsock-cache-sync.patch` fixes this issue.
 The patch adds a full system data synchronization barrier in `kvm_nested_sync_hwstate()` to ensure
 L2's writes are visible to L1's reads before returning from the nested guest exit handler.
 
@@ -1278,9 +1350,9 @@ Key config fields in `[kernel_profiles.nested.arm64]`:
 ```toml
 kernel_version = "6.18.3"              # Version to download/build
 kernel_repo = "ejc3/fcvm"           # GitHub repo for releases
-build_inputs = ["kernel/nested.conf", "kernel/patches/*.patch"]  # Files for SHA
+build_inputs = ["kernel/nested.conf", "kernel/nested/arm64/*.patch"]  # Files for SHA
 kernel_config = "kernel/nested.conf"   # Kernel .config
-patches_dir = "kernel/patches"         # Directory with patches
+patches_dir = "kernel/nested/arm64"    # Directory with patches
 ```
 
 **Creating/Editing Kernel Patches:**

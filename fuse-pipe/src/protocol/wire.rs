@@ -2,6 +2,21 @@
 //!
 //! # Frame Format
 //!
+//! ## Client → Server (requests via multiplexer)
+//!
+//! ```text
+//! +----------+----------+---------+
+//! |  CRC32   |  length  | payload |
+//! | (4 bytes)| (4 bytes)| (N bytes)|
+//! +----------+----------+---------+
+//! ```
+//!
+//! - CRC32 is a big-endian u32 checksum of (length + payload) for corruption detection
+//! - Length is a big-endian u32 specifying the payload size
+//! - Payload is bincode-serialized WireRequest
+//!
+//! ## Server → Client (responses)
+//!
 //! ```text
 //! +----------+---------+
 //! |  length  | payload |
@@ -10,7 +25,11 @@
 //! ```
 //!
 //! - Length is a big-endian u32 specifying the payload size
-//! - Payload is bincode-serialized WireRequest or WireResponse
+//! - Payload is bincode-serialized WireResponse
+//!
+//! Note: The CRC header is only on the client→server direction because that is the
+//! path where NV2 vsock data corruption has been observed. Responses include an
+//! application-level checksum inside WireResponse for end-to-end validation.
 
 use super::{VolumeRequest, VolumeResponse};
 use serde::{Deserialize, Serialize};
@@ -46,6 +65,10 @@ pub struct WireRequest {
     /// The client reads these from /proc/<pid>/status and forwards them.
     #[serde(default)]
     pub supplementary_groups: Vec<u32>,
+    /// CRC32 checksum of the serialized request field for corruption detection.
+    /// Used to diagnose vsock data corruption under NV2 nested virtualization.
+    #[serde(default)]
+    pub checksum: Option<u32>,
 }
 
 impl WireRequest {
@@ -57,6 +80,7 @@ impl WireRequest {
             request,
             span: None,
             supplementary_groups: Vec::new(),
+            checksum: None,
         }
     }
 
@@ -68,6 +92,7 @@ impl WireRequest {
             request,
             span: Some(span),
             supplementary_groups: Vec::new(),
+            checksum: None,
         }
     }
 
@@ -84,6 +109,7 @@ impl WireRequest {
             request,
             span: None,
             supplementary_groups,
+            checksum: None,
         }
     }
 
@@ -101,6 +127,28 @@ impl WireRequest {
             request,
             span: Some(span),
             supplementary_groups,
+            checksum: None,
+        }
+    }
+
+    /// Compute CRC32 checksum of the serialized request field.
+    pub fn compute_checksum(&self) -> u32 {
+        let data = bincode::serialize(&self.request).unwrap_or_default();
+        crc32fast::hash(&data)
+    }
+
+    /// Add checksum to this request (consumes and returns self with checksum set).
+    pub fn with_checksum(mut self) -> Self {
+        self.checksum = Some(self.compute_checksum());
+        self
+    }
+
+    /// Validate checksum if present.
+    /// Returns true if no checksum is set (backwards compatible) or if checksum matches.
+    pub fn validate_checksum(&self) -> bool {
+        match self.checksum {
+            Some(expected) => self.compute_checksum() == expected,
+            None => true, // No checksum = skip validation
         }
     }
 
@@ -249,6 +297,9 @@ pub struct WireResponse {
     /// Trace span - passed back from server with timing data
     #[serde(default)]
     pub span: Option<Span>,
+    /// CRC32 checksum of the serialized response field for corruption detection.
+    #[serde(default)]
+    pub checksum: Option<u32>,
 }
 
 impl WireResponse {
@@ -259,6 +310,7 @@ impl WireResponse {
             reader_id,
             response,
             span: None,
+            checksum: None,
         }
     }
 
@@ -269,6 +321,28 @@ impl WireResponse {
             reader_id,
             response,
             span: Some(span),
+            checksum: None,
+        }
+    }
+
+    /// Compute CRC32 checksum of the serialized response field.
+    pub fn compute_checksum(&self) -> u32 {
+        let data = bincode::serialize(&self.response).unwrap_or_default();
+        crc32fast::hash(&data)
+    }
+
+    /// Add checksum to this response (consumes and returns self with checksum set).
+    pub fn with_checksum(mut self) -> Self {
+        self.checksum = Some(self.compute_checksum());
+        self
+    }
+
+    /// Validate checksum if present.
+    /// Returns true if no checksum is set (backwards compatible) or if checksum matches.
+    pub fn validate_checksum(&self) -> bool {
+        match self.checksum {
+            Some(expected) => self.compute_checksum() == expected,
+            None => true, // No checksum = skip validation
         }
     }
 
