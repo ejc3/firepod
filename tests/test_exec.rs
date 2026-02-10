@@ -1390,10 +1390,7 @@ async fn test_exec_parallel_pipe_stress() -> Result<()> {
                         } else {
                             stdout.clone()
                         };
-                        failures.push((
-                            idx,
-                            format!("exit={}, output={:?}", exit_code, preview),
-                        ));
+                        failures.push((idx, format!("exit={}, output={:?}", exit_code, preview)));
                     }
                 }
                 Err(e) => {
@@ -1430,7 +1427,8 @@ async fn test_exec_parallel_pipe_stress() -> Result<()> {
 
     // Assert 100% success
     assert_eq!(
-        success_count, TOTAL_EXECS,
+        success_count,
+        TOTAL_EXECS,
         "Expected 100% success rate, got {}/{} failures: {:?}",
         success_count,
         TOTAL_EXECS,
