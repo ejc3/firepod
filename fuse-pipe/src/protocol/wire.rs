@@ -2,6 +2,21 @@
 //!
 //! # Frame Format
 //!
+//! ## Client → Server (requests via multiplexer)
+//!
+//! ```text
+//! +----------+----------+---------+
+//! |  CRC32   |  length  | payload |
+//! | (4 bytes)| (4 bytes)| (N bytes)|
+//! +----------+----------+---------+
+//! ```
+//!
+//! - CRC32 is a big-endian u32 checksum of (length + payload) for corruption detection
+//! - Length is a big-endian u32 specifying the payload size
+//! - Payload is bincode-serialized WireRequest
+//!
+//! ## Server → Client (responses)
+//!
 //! ```text
 //! +----------+---------+
 //! |  length  | payload |
@@ -10,7 +25,11 @@
 //! ```
 //!
 //! - Length is a big-endian u32 specifying the payload size
-//! - Payload is bincode-serialized WireRequest or WireResponse
+//! - Payload is bincode-serialized WireResponse
+//!
+//! Note: The CRC header is only on the client→server direction because that is the
+//! path where NV2 vsock data corruption has been observed. Responses include an
+//! application-level checksum inside WireResponse for end-to-end validation.
 
 use super::{VolumeRequest, VolumeResponse};
 use serde::{Deserialize, Serialize};
