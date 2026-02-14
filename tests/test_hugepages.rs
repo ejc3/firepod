@@ -22,10 +22,7 @@ async fn ensure_hugepages() -> Result<()> {
     let nr = tokio::fs::read_to_string("/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages")
         .await
         .context("reading nr_hugepages")?;
-    let count: u64 = nr
-        .trim()
-        .parse()
-        .context("parsing nr_hugepages")?;
+    let count: u64 = nr.trim().parse().context("parsing nr_hugepages")?;
     anyhow::ensure!(
         count > 0,
         "No hugepages allocated. Run: echo 512 | sudo tee /proc/sys/vm/nr_hugepages"
@@ -211,8 +208,7 @@ async fn test_hugepage_snapshot_clone() -> Result<()> {
     println!("============================");
     ensure_hugepages().await?;
 
-    let (baseline_name, clone_name, snap_name, serve_name) =
-        common::unique_names("hp-snap-clone");
+    let (baseline_name, clone_name, snap_name, serve_name) = common::unique_names("hp-snap-clone");
 
     let fcvm_path = common::find_fcvm_binary()?;
 
@@ -266,12 +262,10 @@ async fn test_hugepage_snapshot_clone() -> Result<()> {
 
     // 3. Start serve
     println!("  Starting serve for '{}'...", snap_name);
-    let (mut serve_child, serve_pid) = common::spawn_fcvm_with_logs(
-        &["snapshot", "serve", &snap_name],
-        &serve_name,
-    )
-    .await
-    .context("starting serve")?;
+    let (mut serve_child, serve_pid) =
+        common::spawn_fcvm_with_logs(&["snapshot", "serve", &snap_name], &serve_name)
+            .await
+            .context("starting serve")?;
 
     // Give serve a moment to start
     tokio::time::sleep(Duration::from_secs(2)).await;

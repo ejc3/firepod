@@ -15,7 +15,6 @@ use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
 use crate::paths;
 
-
 /// Async UFFD server that serves memory pages for multiple VMs from a single snapshot
 pub struct UffdServer {
     snapshot_id: String,
@@ -417,7 +416,13 @@ struct GuestRegionUffdMapping {
     offset: u64,
     /// Page size for this region (from Firecracker handshake).
     /// Standard: 4096, hugepages: 2097152.
+    /// Older Firecracker versions may omit this; defaults to 4096.
+    #[serde(default = "default_page_size")]
     page_size: usize,
+}
+
+fn default_page_size() -> usize {
+    4096
 }
 
 impl GuestRegionUffdMapping {
@@ -435,6 +440,12 @@ impl GuestRegionUffdMapping {
 
     /// Validate that this mapping has sensible values
     fn validate(&self) -> Result<()> {
+        if self.page_size == 0 || !self.page_size.is_power_of_two() {
+            anyhow::bail!(
+                "invalid page_size {}: must be a non-zero power of two",
+                self.page_size
+            );
+        }
         if self.size == 0 {
             anyhow::bail!(
                 "mapping has zero size at base 0x{:x}",
@@ -606,6 +617,39 @@ mod tests {
         let result = mapping.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("overflow"));
+    }
+
+    #[test]
+    fn test_mapping_json_without_page_size() {
+        // Older Firecracker versions may omit page_size — should default to 4096
+        let json = r#"[
+            {"base_host_virt_addr": 140000000, "size": 536870912, "offset": 0}
+        ]"#;
+        let mappings: Vec<GuestRegionUffdMapping> = serde_json::from_str(json).unwrap();
+        assert_eq!(mappings[0].page_size, 4096);
+    }
+
+    #[test]
+    fn test_mapping_validate_invalid_page_size() {
+        let mapping = GuestRegionUffdMapping {
+            base_host_virt_addr: 0x1000,
+            size: 0x1000,
+            offset: 0,
+            page_size: 0, // Invalid: zero
+        };
+        let result = mapping.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("page_size"));
+
+        let mapping = GuestRegionUffdMapping {
+            base_host_virt_addr: 0x1000,
+            size: 0x1000,
+            offset: 0,
+            page_size: 123, // Invalid: not a power of two
+        };
+        let result = mapping.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("page_size"));
     }
 
     #[test]
